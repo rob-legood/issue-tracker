@@ -1,4 +1,4 @@
-import type { IssuePriority, IssueStatus } from '@issue-tracker/shared';
+import type { IssuePriority, IssueSort, IssueStatus } from '@issue-tracker/shared';
 
 export const STATUS_LABELS: Record<IssueStatus, string> = {
   open: 'Open',
@@ -11,6 +11,13 @@ export const PRIORITY_LABELS: Record<IssuePriority, string> = {
   medium: 'Medium',
   high: 'High',
   urgent: 'Urgent',
+};
+
+export const SORT_LABELS: Record<IssueSort, string> = {
+  newest: 'Newest',
+  oldest: 'Oldest',
+  priority: 'Priority',
+  updated: 'Recently updated',
 };
 
 export const PAGE_SIZE = 20;

@@ -257,6 +257,398 @@ describe('GET /api/issues', () => {
   });
 });
 
+describe('GET /api/issues filters, search and sort', () => {
+  function list(query: string) {
+    return request(app).get(`/api/issues${query}`);
+  }
+
+  function titles(res: request.Response): string[] {
+    return res.body.items.map((issue: Issue) => issue.title);
+  }
+
+  async function expectInvalidQuery(query: string, field: string) {
+    const res = await list(query);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details).toEqual(
+      expect.arrayContaining([{ field, message: expect.any(String) }]),
+    );
+  }
+
+  describe('status', () => {
+    async function seed() {
+      await createIssue({ title: 'Open one', status: 'open' });
+      await createIssue({ title: 'Progress one', status: 'in_progress' });
+      await createIssue({ title: 'Closed one', status: 'closed' });
+    }
+
+    it('filters by one status', async () => {
+      await seed();
+
+      const res = await list('?status=in_progress');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Progress one']);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('filters by several comma-separated statuses', async () => {
+      await seed();
+
+      const res = await list('?status=open,in_progress');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Progress one', 'Open one']);
+      expect(res.body.total).toBe(2);
+    });
+
+    it('rejects an unknown status', () => expectInvalidQuery('?status=done', 'status'));
+
+    it('rejects an unknown status in a comma-separated list', () =>
+      expectInvalidQuery('?status=open,done', 'status'));
+
+    it('treats an empty status as absent', async () => {
+      await seed();
+
+      const res = await list('?status=');
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(3);
+    });
+  });
+
+  describe('priority', () => {
+    async function seed() {
+      await createIssue({ title: 'Low one', priority: 'low' });
+      await createIssue({ title: 'High one', priority: 'high' });
+      await createIssue({ title: 'Urgent one', priority: 'urgent' });
+    }
+
+    it('filters by one priority', async () => {
+      await seed();
+
+      const res = await list('?priority=high');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['High one']);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('filters by several comma-separated priorities', async () => {
+      await seed();
+
+      const res = await list('?priority=high,urgent');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Urgent one', 'High one']);
+    });
+
+    it('rejects an unknown priority', () => expectInvalidQuery('?priority=critical', 'priority'));
+
+    it('rejects an unknown priority in a comma-separated list', () =>
+      expectInvalidQuery('?priority=high,critical', 'priority'));
+
+    it('treats an empty priority as absent', async () => {
+      await seed();
+
+      const res = await list('?priority=');
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(3);
+    });
+  });
+
+  describe('label', () => {
+    async function seed() {
+      await createIssue({ title: 'Has bug', labels: ['bug', 'ui'] });
+      await createIssue({ title: 'Has ui only', labels: ['ui'] });
+      await createIssue({ title: 'No labels' });
+    }
+
+    it('returns issues that have the label', async () => {
+      await seed();
+
+      const res = await list('?label=ui');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Has ui only', 'Has bug']);
+      expect(res.body.total).toBe(2);
+    });
+
+    it('lowercases the label in the query', async () => {
+      await seed();
+
+      const res = await list('?label=Bug');
+
+      expect(titles(res)).toEqual(['Has bug']);
+    });
+
+    it('trims the label in the query', async () => {
+      await seed();
+
+      const res = await list('?label=%20bug%20');
+
+      expect(titles(res)).toEqual(['Has bug']);
+    });
+
+    it('returns nothing for a label no issue has', async () => {
+      await seed();
+
+      const res = await list('?label=missing');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ items: [], total: 0 });
+    });
+
+    it('treats an empty label as absent', async () => {
+      await seed();
+
+      const res = await list('?label=');
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(3);
+    });
+  });
+
+  describe('assignee', () => {
+    async function seed() {
+      await createIssue({ title: 'Alice work', assignee: 'Alice' });
+      await createIssue({ title: 'Alicia work', assignee: 'Alicia' });
+      await createIssue({ title: 'Unassigned' });
+    }
+
+    it('matches the assignee ignoring case', async () => {
+      await seed();
+
+      const res = await list('?assignee=alice');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Alice work']);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('does not match part of an assignee name', async () => {
+      await seed();
+
+      const res = await list('?assignee=ali');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ items: [], total: 0 });
+    });
+
+    it('treats regex characters in the assignee as literal', async () => {
+      await seed();
+
+      const res = await list('?assignee=' + encodeURIComponent('.*'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(0);
+    });
+
+    it('treats an empty assignee as absent', async () => {
+      await seed();
+
+      const res = await list('?assignee=');
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(3);
+    });
+  });
+
+  describe('q', () => {
+    async function seed() {
+      await createIssue({ title: 'Login Button broken' });
+      await createIssue({ title: 'Logout page' });
+      await createIssue({ title: 'abc' });
+      await createIssue({ title: 'a.c' });
+    }
+
+    it('finds titles containing the text, ignoring case', async () => {
+      await seed();
+
+      const res = await list('?q=BUTTON');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Login Button broken']);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('matches part of a word', async () => {
+      await seed();
+
+      const res = await list('?q=log');
+
+      expect(titles(res)).toEqual(['Logout page', 'Login Button broken']);
+    });
+
+    it('treats a dot as a literal character', async () => {
+      await seed();
+
+      const res = await list('?q=a.c');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['a.c']);
+    });
+
+    it('does not fail on an unbalanced parenthesis', async () => {
+      await createIssue({ title: 'Call foo(bar)' });
+      await seed();
+
+      const res = await list('?q=' + encodeURIComponent('('));
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Call foo(bar)']);
+    });
+
+    it('does not fail on other regex characters', async () => {
+      await seed();
+
+      const res = await list('?q=' + encodeURIComponent('[*+?\\^$|'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(0);
+    });
+
+    it('treats an empty q as absent', async () => {
+      await seed();
+
+      const res = await list('?q=');
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(4);
+    });
+  });
+
+  describe('sort', () => {
+    it('sorts newest first by default', async () => {
+      await createIssues(3);
+
+      expect(titles(await list(''))).toEqual(['Issue 3', 'Issue 2', 'Issue 1']);
+    });
+
+    it('sorts newest first with sort=newest', async () => {
+      await createIssues(3);
+
+      expect(titles(await list('?sort=newest'))).toEqual(['Issue 3', 'Issue 2', 'Issue 1']);
+    });
+
+    it('sorts oldest first with sort=oldest', async () => {
+      await createIssues(3);
+
+      expect(titles(await list('?sort=oldest'))).toEqual(['Issue 1', 'Issue 2', 'Issue 3']);
+    });
+
+    it('sorts by priority, newest first within each priority', async () => {
+      await createIssue({ title: 'low 1', priority: 'low' });
+      await createIssue({ title: 'urgent 1', priority: 'urgent' });
+      await createIssue({ title: 'medium 1', priority: 'medium' });
+      await createIssue({ title: 'high 1', priority: 'high' });
+      await createIssue({ title: 'urgent 2', priority: 'urgent' });
+      await createIssue({ title: 'low 2', priority: 'low' });
+      await createIssue({ title: 'high 2', priority: 'high' });
+      await createIssue({ title: 'medium 2', priority: 'medium' });
+
+      const res = await list('?sort=priority');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual([
+        'urgent 2',
+        'urgent 1',
+        'high 2',
+        'high 1',
+        'medium 2',
+        'medium 1',
+        'low 2',
+        'low 1',
+      ]);
+    });
+
+    it('sorts most recently updated first with sort=updated', async () => {
+      const [first] = await createIssues(3);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await request(app).patch(`/api/issues/${first?.id}`).send({ description: 'touched' });
+
+      const res = await list('?sort=updated');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Issue 1', 'Issue 3', 'Issue 2']);
+    });
+
+    it('rejects an unknown sort', () => expectInvalidQuery('?sort=alphabetical', 'sort'));
+
+    it('treats an empty sort as the default', async () => {
+      await createIssues(2);
+
+      const res = await list('?sort=');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Issue 2', 'Issue 1']);
+    });
+  });
+
+  describe('combining', () => {
+    it('combines filters with AND', async () => {
+      const base = { status: 'open', priority: 'high', labels: ['bug'], assignee: 'Sam' };
+      await createIssue({ ...base, title: 'Match' });
+      await createIssue({ ...base, title: 'Wrong status match', status: 'closed' });
+      await createIssue({ ...base, title: 'Wrong priority match', priority: 'low' });
+      await createIssue({ ...base, title: 'Wrong label match', labels: ['ui'] });
+      await createIssue({ ...base, title: 'Wrong assignee match', assignee: 'Kim' });
+      await createIssue({ ...base, title: 'Other title' });
+
+      const res = await list('?status=open&priority=high&label=bug&assignee=sam&q=match');
+
+      expect(res.status).toBe(200);
+      expect(titles(res)).toEqual(['Match']);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('counts only matching issues in total', async () => {
+      for (let i = 1; i <= 5; i++) await createIssue({ title: `Open ${i}`, status: 'open' });
+      for (let i = 1; i <= 3; i++) await createIssue({ title: `Closed ${i}`, status: 'closed' });
+
+      const res = await list('?status=closed&limit=2');
+
+      expect(res.body.total).toBe(3);
+      expect(res.body.items).toHaveLength(2);
+    });
+
+    it('paginates the filtered results', async () => {
+      for (let i = 1; i <= 5; i++) {
+        await createIssue({ title: `Open ${i}`, status: 'open' });
+        await createIssue({ title: `Closed ${i}`, status: 'closed' });
+      }
+
+      const second = await list('?status=closed&limit=2&page=2');
+      const third = await list('?status=closed&limit=2&page=3');
+
+      expect(second.body).toMatchObject({ total: 5, page: 2, limit: 2 });
+      expect(titles(second)).toEqual(['Closed 3', 'Closed 2']);
+      expect(titles(third)).toEqual(['Closed 1']);
+    });
+
+    it('applies sort together with filters', async () => {
+      await createIssue({ title: 'old closed', status: 'closed' });
+      await createIssue({ title: 'open', status: 'open' });
+      await createIssue({ title: 'new closed', status: 'closed' });
+
+      const res = await list('?status=closed&sort=oldest');
+
+      expect(titles(res)).toEqual(['old closed', 'new closed']);
+    });
+
+    it('returns an empty page when nothing matches', async () => {
+      await createIssues(2);
+
+      const res = await list('?q=nothing-like-this');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ items: [], total: 0, page: 1, limit: 20 });
+    });
+  });
+});
+
 const MISSING_ID = '507f1f77bcf86cd799439011';
 
 function expectNotFound(res: request.Response) {

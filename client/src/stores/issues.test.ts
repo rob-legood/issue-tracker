@@ -27,7 +27,7 @@ describe('issues store', () => {
     vi.mocked(listIssues).mockResolvedValue(pageOf([issue], { total: 45, page: 2 }));
     const store = useIssuesStore();
 
-    await store.fetchIssues(2);
+    await store.fetchIssues({ page: 2 });
 
     expect(listIssues).toHaveBeenCalledWith({ page: 2, limit: 20 });
     expect(store.items).toEqual([issue]);
@@ -36,6 +36,50 @@ describe('issues store', () => {
     expect(store.totalPages).toBe(3);
     expect(store.loading).toBe(false);
     expect(store.error).toBeNull();
+  });
+
+  it('requests page 1 with the page size by default', async () => {
+    vi.mocked(listIssues).mockResolvedValue(pageOf([]));
+    const store = useIssuesStore();
+
+    await store.fetchIssues();
+
+    expect(listIssues).toHaveBeenCalledWith({ page: 1, limit: 20 });
+  });
+
+  it('passes filters, search and sort to the API', async () => {
+    vi.mocked(listIssues).mockResolvedValue(pageOf([]));
+    const store = useIssuesStore();
+
+    await store.fetchIssues({
+      status: ['open', 'in_progress'],
+      priority: ['high'],
+      label: 'bug',
+      assignee: 'Sam',
+      q: 'login',
+      sort: 'updated',
+      page: 3,
+    });
+
+    expect(listIssues).toHaveBeenCalledWith({
+      status: ['open', 'in_progress'],
+      priority: ['high'],
+      label: 'bug',
+      assignee: 'Sam',
+      q: 'login',
+      sort: 'updated',
+      page: 3,
+      limit: 20,
+    });
+  });
+
+  it('always uses the store page size, whatever limit the caller passes', async () => {
+    vi.mocked(listIssues).mockResolvedValue(pageOf([]));
+    const store = useIssuesStore();
+
+    await store.fetchIssues({ limit: 5 });
+
+    expect(listIssues).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }));
   });
 
   it('is loading while the request is pending', () => {
@@ -73,8 +117,8 @@ describe('issues store', () => {
       .mockResolvedValueOnce(pageOf([makeIssue({ number: 2 })], { page: 2 }));
     const store = useIssuesStore();
 
-    const first = store.fetchIssues(1);
-    await store.fetchIssues(2);
+    const first = store.fetchIssues({ page: 1 });
+    await store.fetchIssues({ page: 2 });
     resolveFirst(pageOf([makeIssue({ number: 1 })]));
     await first;
 

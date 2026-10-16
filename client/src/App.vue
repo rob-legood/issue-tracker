@@ -76,6 +76,24 @@ td {
   max-width: 40rem;
 }
 
+.filters {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  margin-bottom: 1rem;
+}
+
+.filters fieldset {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.filters .actions {
+  margin-bottom: 1rem;
+}
+
 .field-hint {
   color: #555;
   font-size: 0.875rem;

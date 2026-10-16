@@ -54,8 +54,16 @@ export interface CreateIssueRequest {
   assignee?: string | null;
 }
 
-/** Query string of GET /api/issues. Filters and sorting arrive with SPEC feature 6. */
+export type IssueSort = 'newest' | 'oldest' | 'priority' | 'updated';
+
+/** Query string of GET /api/issues. */
 export interface ListIssuesQuery {
+  status?: IssueStatus[];
+  priority?: IssuePriority[];
+  label?: string;
+  assignee?: string;
+  q?: string;
+  sort?: IssueSort;
   page?: number;
   limit?: number;
 }

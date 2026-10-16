@@ -1,6 +1,13 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { Comment, CreateIssueRequest, Issue, IssueStatus, UpdateIssueRequest } from '@issue-tracker/shared';
+import type {
+  Comment,
+  CreateIssueRequest,
+  Issue,
+  IssueStatus,
+  ListIssuesQuery,
+  UpdateIssueRequest,
+} from '@issue-tracker/shared';
 import * as issuesApi from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { PAGE_SIZE } from '@/constants/issues';
@@ -26,12 +33,13 @@ export const useIssuesStore = defineStore('issues', () => {
   // earlier page never overwrites a newer one.
   let latestRequest = 0;
 
-  async function fetchIssues(pageNumber = 1): Promise<void> {
+  /** Loads one page of issues matching the filters in `query`. */
+  async function fetchIssues(query: ListIssuesQuery = {}): Promise<void> {
     const requestId = ++latestRequest;
     loading.value = true;
     error.value = null;
     try {
-      const result = await issuesApi.listIssues({ page: pageNumber, limit: PAGE_SIZE });
+      const result = await issuesApi.listIssues({ ...query, page: query.page ?? 1, limit: PAGE_SIZE });
       if (requestId !== latestRequest) return;
       items.value = result.items;
       total.value = result.total;

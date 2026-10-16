@@ -10,6 +10,12 @@ import { request } from './http';
 
 export function listIssues(query: ListIssuesQuery = {}): Promise<Page<Issue>> {
   const params = new URLSearchParams();
+  if (query.status?.length) params.set('status', query.status.join(','));
+  if (query.priority?.length) params.set('priority', query.priority.join(','));
+  if (query.label) params.set('label', query.label);
+  if (query.assignee) params.set('assignee', query.assignee);
+  if (query.q) params.set('q', query.q);
+  if (query.sort) params.set('sort', query.sort);
   if (query.page !== undefined) params.set('page', String(query.page));
   if (query.limit !== undefined) params.set('limit', String(query.limit));
   const search = params.toString();

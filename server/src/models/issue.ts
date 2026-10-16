@@ -1,9 +1,10 @@
 import mongoose, { Schema } from 'mongoose';
 import type { HydratedDocument } from 'mongoose';
-import type { Issue, IssuePriority, IssueStatus } from '@issue-tracker/shared';
+import type { Issue, IssuePriority, IssueSort, IssueStatus } from '@issue-tracker/shared';
 
 export const ISSUE_STATUSES = ['open', 'in_progress', 'closed'] as const satisfies readonly IssueStatus[];
 export const ISSUE_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const satisfies readonly IssuePriority[];
+export const ISSUE_SORTS = ['newest', 'oldest', 'priority', 'updated'] as const satisfies readonly IssueSort[];
 
 export interface IssueDoc {
   number: number;
@@ -33,8 +34,14 @@ const issueSchema = new Schema<IssueDoc>(
 );
 
 issueSchema.index({ number: 1 }, { unique: true });
-// Default list order: newest first.
-issueSchema.index({ createdAt: -1 });
+// List sorts: newest and oldest, recently updated. `number` breaks ties.
+issueSchema.index({ createdAt: -1, number: -1 });
+issueSchema.index({ updatedAt: -1, number: -1 });
+// List filters, each paired with the default sort.
+issueSchema.index({ status: 1, createdAt: -1 });
+issueSchema.index({ priority: 1, createdAt: -1 });
+issueSchema.index({ labels: 1, createdAt: -1 });
+issueSchema.index({ assignee: 1, createdAt: -1 });
 
 export const IssueModel = mongoose.model<IssueDoc>('Issue', issueSchema);
 

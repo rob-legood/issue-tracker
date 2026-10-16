@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ISSUE_PRIORITIES, ISSUE_STATUSES } from '../models/issue.ts';
+import { ISSUE_PRIORITIES, ISSUE_SORTS, ISSUE_STATUSES } from '../models/issue.ts';
 
 const label = z
   .string({ error: 'Each label must be text' })
@@ -73,7 +73,29 @@ const positiveInt = (field: string, max?: number) => {
   return schema;
 };
 
+/** An empty query value, such as `?status=`, counts as not given. */
+const optionalParam = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+
+/** One value from `allowed`, or several separated by commas. */
+const commaList = <const T extends readonly string[]>(allowed: T, message: string) =>
+  z
+    .string({ error: message })
+    .refine((value) => value.split(',').every((part) => allowed.includes(part)), message)
+    .transform((value) => [...new Set(value.split(','))] as T[number][]);
+
+const text = (field: string, max = 200) =>
+  z.string({ error: `${field} must be text` }).trim().max(max, `${field} must be at most ${max} characters`);
+
 export const listIssuesQuerySchema = z.object({
+  status: optionalParam(commaList(ISSUE_STATUSES, 'Status must be open, in_progress or closed')),
+  priority: optionalParam(commaList(ISSUE_PRIORITIES, 'Priority must be low, medium, high or urgent')),
+  label: optionalParam(text('Label', 30).toLowerCase()),
+  assignee: optionalParam(text('Assignee')),
+  q: optionalParam(text('Search text')),
+  sort: optionalParam(z.enum(ISSUE_SORTS, { error: 'Sort must be newest, oldest, priority or updated' })).transform(
+    (sort) => sort ?? 'newest',
+  ),
   page: positiveInt('Page').default(1),
   limit: positiveInt('Limit', 100).default(20),
 });
