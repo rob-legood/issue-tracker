@@ -33,10 +33,17 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 
   if (err instanceof ZodError) {
     status = 400;
-    const details = err.issues.map((issue) => ({
-      field: issue.path.map(String).join('.'),
-      message: issue.message,
-    }));
+    const details = err.issues.flatMap((issue) => {
+      const field = issue.path.map(String).join('.');
+      // Report each unknown key under its own name, not under its parent object.
+      if (issue.code === 'unrecognized_keys') {
+        return issue.keys.map((key) => ({
+          field: field ? `${field}.${key}` : key,
+          message: issue.message,
+        }));
+      }
+      return [{ field: field || 'body', message: issue.message }];
+    });
     body = {
       error: {
         code: 'VALIDATION_ERROR',

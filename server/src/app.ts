@@ -1,6 +1,7 @@
 import express, { Router } from 'express';
 import type { Express } from 'express';
 import { healthRouter } from './routes/health.ts';
+import { issuesRouter } from './routes/issues.ts';
 import { errorHandler, notFound } from './middleware/errors.ts';
 
 /**
@@ -15,6 +16,7 @@ export function createApp(extend?: (api: Router) => void): Express {
 
   const api = Router();
   api.use(healthRouter);
+  api.use(issuesRouter);
   extend?.(api);
   api.use(notFound);
 
