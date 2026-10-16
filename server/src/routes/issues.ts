@@ -2,7 +2,8 @@ import { Router } from 'express';
 import type { Issue, Page } from '@issue-tracker/shared';
 import { IssueModel, toIssue } from '../models/issue.ts';
 import { nextSequence } from '../models/counter.ts';
-import { createIssueSchema, listIssuesQuerySchema } from '../validation/issues.ts';
+import { findIssueOr404 } from './helpers.ts';
+import { createIssueSchema, listIssuesQuerySchema, updateIssueSchema } from '../validation/issues.ts';
 
 export const issuesRouter = Router();
 
@@ -35,4 +36,23 @@ issuesRouter.post('/issues', async (req, res) => {
 
   const body: Issue = toIssue(doc);
   res.status(201).json(body);
+});
+
+issuesRouter.get('/issues/:id', async (req, res) => {
+  const doc = await findIssueOr404(req.params.id);
+  const body: Issue = toIssue(doc);
+  res.json(body);
+});
+
+issuesRouter.patch('/issues/:id', async (req, res) => {
+  const input = updateIssueSchema.parse(req.body);
+  const doc = await findIssueOr404(req.params.id);
+
+  if (input.status === 'closed' && doc.status !== 'closed') doc.closedAt = new Date();
+  else if (input.status !== undefined && input.status !== 'closed') doc.closedAt = null;
+  doc.set(input);
+  await doc.save();
+
+  const body: Issue = toIssue(doc);
+  res.json(body);
 });

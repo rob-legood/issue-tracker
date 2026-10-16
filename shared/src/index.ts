@@ -59,3 +59,16 @@ export interface ListIssuesQuery {
   page?: number;
   limit?: number;
 }
+
+export interface Comment {
+  id: string;
+  issueId: string;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
+/** Body of PATCH /api/issues/:id: any non-empty subset of the editable fields. */
+export type UpdateIssueRequest = Partial<
+  Pick<Issue, 'title' | 'description' | 'status' | 'priority' | 'labels' | 'assignee'>
+>;

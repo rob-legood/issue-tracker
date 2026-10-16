@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createIssue, listIssues } from './issues';
+import { createIssue, getIssue, listComments, listIssues, updateIssue } from './issues';
 import { request } from './http';
 
 vi.mock('./http');
@@ -28,5 +28,26 @@ describe('issues API', () => {
       method: 'POST',
       body: JSON.stringify({ title: 'Broken', labels: ['bug'] }),
     });
+  });
+
+  it('gets one issue by id', async () => {
+    await getIssue('abc123');
+
+    expect(request).toHaveBeenCalledWith('/issues/abc123');
+  });
+
+  it('updates an issue with a JSON PATCH', async () => {
+    await updateIssue('abc123', { status: 'closed', assignee: null });
+
+    expect(request).toHaveBeenCalledWith('/issues/abc123', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'closed', assignee: null }),
+    });
+  });
+
+  it('lists the comments of an issue', async () => {
+    await listComments('abc123');
+
+    expect(request).toHaveBeenCalledWith('/issues/abc123/comments');
   });
 });

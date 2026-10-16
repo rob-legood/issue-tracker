@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
+import type { Issue } from '@issue-tracker/shared';
 import { useIssuesStore } from '@/stores/issues';
 import { PRIORITY_LABELS, STATUS_LABELS } from '@/constants/issues';
 
@@ -14,7 +15,31 @@ const currentPage = computed(() => {
   return Number.isInteger(page) && page >= 1 ? page : 1;
 });
 
-watch(currentPage, (page) => store.fetchIssues(page), { immediate: true });
+
+/** Ids of issues whose status is being changed, so their buttons can't be clicked twice. */
+const statusSaving = ref(new Set<string>());
+const statusError = ref<string | null>(null);
+
+async function toggleStatus(issue: Issue) {
+  statusSaving.value.add(issue.id);
+  statusError.value = null;
+  try {
+    await store.setStatus(issue.id, issue.status === 'closed' ? 'open' : 'closed');
+  } catch (err) {
+    statusError.value = err instanceof Error ? err.message : 'Could not change the status.';
+  } finally {
+    statusSaving.value.delete(issue.id);
+  }
+}
+
+watch(
+  currentPage,
+  (page) => {
+    statusError.value = null;
+    void store.fetchIssues(page);
+  },
+  { immediate: true },
+);
 
 function pageLink(page: number) {
   return { name: 'issues', query: page === 1 ? {} : { page: String(page) } };
@@ -34,6 +59,13 @@ function pageLink(page: number) {
         New issue
       </RouterLink>
     </div>
+
+    <p
+      v-if="statusError"
+      role="alert"
+    >
+      Could not change the status: {{ statusError }}
+    </p>
 
     <p
       v-if="store.error"
@@ -98,6 +130,9 @@ function pageLink(page: number) {
             <th scope="col">
               Assignee
             </th>
+            <th scope="col">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -128,6 +163,16 @@ function pageLink(page: number) {
               </ul>
             </td>
             <td>{{ issue.assignee ?? 'Unassigned' }}</td>
+            <td>
+              <button
+                type="button"
+                :aria-label="`${issue.status === 'closed' ? 'Reopen' : 'Close'} issue #${issue.number}`"
+                :disabled="statusSaving.has(issue.id)"
+                @click="toggleStatus(issue)"
+              >
+                {{ issue.status === 'closed' ? 'Reopen' : 'Close' }}
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>

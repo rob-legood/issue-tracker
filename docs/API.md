@@ -105,7 +105,7 @@ Returns `200` with the `Issue`, or `404`.
 
 ### `PATCH /api/issues/:id`
 
-Body: any non-empty subset of `{ title, description, status, priority, labels, assignee }`. Send `assignee: null` to unassign.
+Body: any non-empty subset of `{ title, description, status, priority, labels, assignee }`. Send `assignee: null` to unassign. An assignee that is blank after trimming is stored as `null`, in both POST and PATCH.
 
 Returns `200` with the updated `Issue`, `400` (including for an empty body) or `404`. Changing `status` to `closed` sets `closedAt`. Changing it away from `closed` sets `closedAt` to `null`.
 

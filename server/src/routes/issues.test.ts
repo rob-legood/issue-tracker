@@ -256,3 +256,278 @@ describe('GET /api/issues', () => {
     expect(res.body.error.details).toEqual([{ field, message: expect.any(String) }]);
   });
 });
+
+const MISSING_ID = '507f1f77bcf86cd799439011';
+
+function expectNotFound(res: request.Response) {
+  expect(res.status).toBe(404);
+  expect(res.body.error.code).toBe('NOT_FOUND');
+  expect(res.body.error.message).toEqual(expect.any(String));
+  expect(res.body.error).not.toHaveProperty('details');
+}
+
+describe('GET /api/issues/:id', () => {
+  it('returns the issue in the API shape', async () => {
+    const created = (await createIssue({ title: 'Find me', labels: ['bug'] })).body as Issue;
+
+    const res = await request(app).get(`/api/issues/${created.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(created);
+    expect(res.body).not.toHaveProperty('_id');
+    expect(res.body).not.toHaveProperty('__v');
+  });
+
+  it('returns 404 for an id that does not exist', async () => {
+    expectNotFound(await request(app).get(`/api/issues/${MISSING_ID}`));
+  });
+
+  it('returns 404 for a malformed id', async () => {
+    expectNotFound(await request(app).get('/api/issues/not-an-object-id'));
+  });
+});
+
+describe('PATCH /api/issues/:id', () => {
+  function patchIssue(id: string, body: object) {
+    return request(app).patch(`/api/issues/${id}`).send(body);
+  }
+
+  async function createFull(): Promise<Issue> {
+    const res = await createIssue({
+      title: 'Original',
+      description: 'Original description',
+      status: 'in_progress',
+      priority: 'high',
+      labels: ['bug'],
+      assignee: 'Sam',
+    });
+    return res.body;
+  }
+
+  it('updates every editable field and returns 200 with the issue', async () => {
+    const issue = await createFull();
+
+    const res = await patchIssue(issue.id, {
+      title: '  New title ',
+      description: 'New description',
+      status: 'open',
+      priority: 'low',
+      labels: ['UI', ' ui ', 'Backend'],
+      assignee: 'Alex',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      id: issue.id,
+      number: issue.number,
+      title: 'New title',
+      description: 'New description',
+      status: 'open',
+      priority: 'low',
+      labels: ['ui', 'backend'],
+      assignee: 'Alex',
+    });
+    expect(res.body).not.toHaveProperty('_id');
+    expect(res.body).not.toHaveProperty('__v');
+  });
+
+  it('persists the change', async () => {
+    const issue = await createFull();
+
+    await patchIssue(issue.id, { title: 'Saved' });
+    const res = await request(app).get(`/api/issues/${issue.id}`);
+
+    expect(res.body.title).toBe('Saved');
+  });
+
+  it('leaves other fields alone when patching one field', async () => {
+    const issue = await createFull();
+
+    const res = await patchIssue(issue.id, { priority: 'urgent' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      title: 'Original',
+      description: 'Original description',
+      status: 'in_progress',
+      priority: 'urgent',
+      labels: ['bug'],
+      assignee: 'Sam',
+    });
+  });
+
+  it('unassigns with assignee: null', async () => {
+    const issue = await createFull();
+
+    const res = await patchIssue(issue.id, { assignee: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body.assignee).toBeNull();
+  });
+
+  it('unassigns with a blank assignee', async () => {
+    const issue = await createFull();
+
+    const res = await patchIssue(issue.id, { assignee: '' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.assignee).toBeNull();
+  });
+
+  it('can clear labels and description', async () => {
+    const issue = await createFull();
+
+    const res = await patchIssue(issue.id, { labels: [], description: '' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.labels).toEqual([]);
+    expect(res.body.description).toBe('');
+  });
+
+  it('advances updatedAt and keeps createdAt', async () => {
+    const issue = await createFull();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const res = await patchIssue(issue.id, { title: 'Later' });
+
+    expect(new Date(res.body.updatedAt).getTime()).toBeGreaterThan(new Date(issue.updatedAt).getTime());
+    expect(res.body.createdAt).toBe(issue.createdAt);
+  });
+
+  describe('closedAt', () => {
+    it('sets closedAt when the status becomes closed', async () => {
+      const issue = await createFull();
+
+      const res = await patchIssue(issue.id, { status: 'closed' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('closed');
+      expect(res.body.closedAt).toEqual(expect.any(String));
+      expect(new Date(res.body.closedAt).toISOString()).toBe(res.body.closedAt);
+    });
+
+    it('clears closedAt when reopened', async () => {
+      const issue = (await createIssue({ title: 'Done', status: 'closed' })).body as Issue;
+
+      const res = await patchIssue(issue.id, { status: 'open' });
+
+      expect(res.body.status).toBe('open');
+      expect(res.body.closedAt).toBeNull();
+    });
+
+    it('clears closedAt when moved to in_progress', async () => {
+      const issue = (await createIssue({ title: 'Done', status: 'closed' })).body as Issue;
+
+      const res = await patchIssue(issue.id, { status: 'in_progress' });
+
+      expect(res.body.closedAt).toBeNull();
+    });
+
+    it('keeps closedAt unchanged when patching other fields of a closed issue', async () => {
+      const issue = (await createIssue({ title: 'Done', status: 'closed' })).body as Issue;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const res = await patchIssue(issue.id, { title: 'Done, renamed' });
+
+      expect(res.body.closedAt).toBe(issue.closedAt);
+    });
+
+    it('keeps closedAt unchanged when patching status closed on a closed issue', async () => {
+      const issue = (await createIssue({ title: 'Done', status: 'closed' })).body as Issue;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const res = await patchIssue(issue.id, { status: 'closed' });
+
+      expect(res.body.closedAt).toBe(issue.closedAt);
+    });
+
+    it('leaves closedAt null when patching other fields of an open issue', async () => {
+      const issue = await createFull();
+
+      const res = await patchIssue(issue.id, { title: 'Still open' });
+
+      expect(res.body.closedAt).toBeNull();
+    });
+  });
+
+  describe('validation', () => {
+    async function expectInvalid(body: unknown, field: string) {
+      const issue = await createFull();
+
+      const res = await request(app)
+        .patch(`/api/issues/${issue.id}`)
+        .send(body as object);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toEqual(expect.any(String));
+      expect(res.body.error.details).toEqual(
+        expect.arrayContaining([{ field, message: expect.any(String) }]),
+      );
+      // Nothing was changed.
+      const after = await request(app).get(`/api/issues/${issue.id}`);
+      expect(after.body).toEqual(issue);
+    }
+
+    it('rejects an empty body', async () => {
+      const issue = await createFull();
+
+      const res = await patchIssue(issue.id, {});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.details).toEqual(expect.any(Array));
+      expect(res.body.error.details.length).toBeGreaterThan(0);
+    });
+
+    it('rejects a title that is blank after trimming', () => expectInvalid({ title: '   ' }, 'title'));
+
+    it('rejects a title over 200 characters', () => expectInvalid({ title: 'x'.repeat(201) }, 'title'));
+
+    it('accepts a title of exactly 200 characters', async () => {
+      const issue = await createFull();
+      const res = await patchIssue(issue.id, { title: 'x'.repeat(200) });
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects a non-string title', () => expectInvalid({ title: 42 }, 'title'));
+
+    it('rejects a null title', () => expectInvalid({ title: null }, 'title'));
+
+    it('rejects a description over 10,000 characters', () =>
+      expectInvalid({ description: 'x'.repeat(10_001) }, 'description'));
+
+    it('rejects an unknown status', () => expectInvalid({ status: 'done' }, 'status'));
+
+    it('rejects an unknown priority', () => expectInvalid({ priority: 'critical' }, 'priority'));
+
+    it('rejects more than 10 labels', () =>
+      expectInvalid({ labels: Array.from({ length: 11 }, (_, i) => `l${i}`) }, 'labels'));
+
+    it('rejects an empty label', () => expectInvalid({ labels: ['ok', ' '] }, 'labels.1'));
+
+    it('rejects a label over 30 characters', () => expectInvalid({ labels: ['x'.repeat(31)] }, 'labels.0'));
+
+    it('rejects labels that are not an array', () => expectInvalid({ labels: 'bug' }, 'labels'));
+
+    it('rejects an assignee over 100 characters', () =>
+      expectInvalid({ assignee: 'x'.repeat(101) }, 'assignee'));
+
+    it('rejects an unknown field', () => expectInvalid({ colour: 'red' }, 'colour'));
+
+    it.each(['number', 'createdAt', 'updatedAt', 'closedAt', 'id'])(
+      'does not let the client set %s',
+      (field) => expectInvalid({ title: 'Fine', [field]: 99 }, field),
+    );
+
+    it('rejects a body that is not an object', () => expectInvalid(['title'], 'body'));
+  });
+
+  it('returns 404 for an id that does not exist', async () => {
+    expectNotFound(await patchIssue(MISSING_ID, { title: 'Nope' }));
+  });
+
+  it('returns 404 for a malformed id', async () => {
+    expectNotFound(await patchIssue('not-an-object-id', { title: 'Nope' }));
+  });
+});

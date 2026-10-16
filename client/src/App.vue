@@ -96,4 +96,39 @@ td {
   display: flex;
   gap: 1rem;
 }
+
+.issue-fields {
+  display: grid;
+  gap: 0.5rem 1rem;
+  grid-template-columns: max-content 1fr;
+}
+
+.issue-fields dt {
+  font-weight: 600;
+}
+
+.issue-fields dd {
+  margin: 0;
+}
+
+.description,
+.comment-body {
+  white-space: pre-wrap;
+}
+
+.comments {
+  list-style: none;
+  padding: 0;
+}
+
+.comments li {
+  border-bottom: 1px solid #ddd;
+  padding: 0.5rem 0;
+}
+
+.comment-meta {
+  display: flex;
+  gap: 1rem;
+  margin: 0;
+}
 </style>

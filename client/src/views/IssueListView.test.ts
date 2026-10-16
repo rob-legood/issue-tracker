@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import type { Issue, Page } from '@issue-tracker/shared';
 import IssueListView from './IssueListView.vue';
 import { routes } from '@/router';
-import { listIssues } from '@/api/issues';
+import { listIssues, updateIssue } from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { makeIssue } from '@/test/factories';
 
@@ -26,6 +26,7 @@ async function mountAt(url: string) {
 describe('IssueListView', () => {
   beforeEach(() => {
     vi.mocked(listIssues).mockReset();
+    vi.mocked(updateIssue).mockReset();
   });
 
   it('shows a loading message while issues load', async () => {
@@ -165,5 +166,88 @@ describe('IssueListView', () => {
 
     const link = wrapper.findAll('a').find((a) => a.text() === 'New issue');
     expect(link?.attributes('href')).toBe('/issues/new');
+  });
+
+  describe('closing and reopening', () => {
+    it('offers Close issue on an open row, named after the issue', async () => {
+      vi.mocked(listIssues).mockResolvedValue(pageOf([makeIssue({ number: 3 })]));
+
+      const { wrapper } = await mountAt('/issues');
+
+      const button = wrapper.find('[data-test="issue-row"] button[aria-label="Close issue #3"]');
+      expect(button.exists()).toBe(true);
+      expect(button.text()).toBe('Close');
+    });
+
+    it('offers Reopen issue on a closed row, named after the issue', async () => {
+      vi.mocked(listIssues).mockResolvedValue(
+        pageOf([makeIssue({ number: 4, status: 'closed', closedAt: '2026-10-17T10:00:00.000Z' })]),
+      );
+
+      const { wrapper } = await mountAt('/issues');
+
+      const button = wrapper.find('[data-test="issue-row"] button[aria-label="Reopen issue #4"]');
+      expect(button.exists()).toBe(true);
+      expect(button.text()).toBe('Reopen');
+      expect(wrapper.find('button[aria-label="Close issue #4"]').exists()).toBe(false);
+    });
+
+    it('closes the issue and updates its row', async () => {
+      vi.mocked(listIssues).mockResolvedValue(pageOf([makeIssue({ id: 'abc', number: 3 })]));
+      vi.mocked(updateIssue).mockResolvedValue(
+        makeIssue({ id: 'abc', number: 3, status: 'closed', closedAt: '2026-10-17T10:00:00.000Z' }),
+      );
+      const { wrapper } = await mountAt('/issues');
+
+      await wrapper.find('button[aria-label="Close issue #3"]').trigger('click');
+      await flushPromises();
+
+      expect(updateIssue).toHaveBeenCalledWith('abc', { status: 'closed' });
+      const row = wrapper.find('[data-test="issue-row"]');
+      expect(row.text()).toContain('Closed');
+      expect(row.find('button[aria-label="Reopen issue #3"]').exists()).toBe(true);
+    });
+
+    it('reopens a closed issue and updates its row', async () => {
+      vi.mocked(listIssues).mockResolvedValue(
+        pageOf([makeIssue({ id: 'abc', number: 3, status: 'closed', closedAt: '2026-10-17T10:00:00.000Z' })]),
+      );
+      vi.mocked(updateIssue).mockResolvedValue(makeIssue({ id: 'abc', number: 3, status: 'open' }));
+      const { wrapper } = await mountAt('/issues');
+
+      await wrapper.find('button[aria-label="Reopen issue #3"]').trigger('click');
+      await flushPromises();
+
+      expect(updateIssue).toHaveBeenCalledWith('abc', { status: 'open' });
+      expect(wrapper.find('[data-test="issue-row"]').text()).toContain('Open');
+      expect(wrapper.find('button[aria-label="Close issue #3"]').exists()).toBe(true);
+    });
+
+    it('only changes the row that was clicked', async () => {
+      vi.mocked(listIssues).mockResolvedValue(
+        pageOf([makeIssue({ id: 'a', number: 5 }), makeIssue({ id: 'b', number: 6 })]),
+      );
+      vi.mocked(updateIssue).mockResolvedValue(makeIssue({ id: 'b', number: 6, status: 'closed' }));
+      const { wrapper } = await mountAt('/issues');
+
+      await wrapper.find('button[aria-label="Close issue #6"]').trigger('click');
+      await flushPromises();
+
+      expect(updateIssue).toHaveBeenCalledTimes(1);
+      expect(wrapper.find('button[aria-label="Close issue #5"]').exists()).toBe(true);
+    });
+
+    it('shows a readable message when closing fails and keeps the list', async () => {
+      vi.mocked(listIssues).mockResolvedValue(pageOf([makeIssue({ number: 3, title: 'Still here' })]));
+      vi.mocked(updateIssue).mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server.'));
+      const { wrapper } = await mountAt('/issues');
+
+      await wrapper.find('button[aria-label="Close issue #3"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[role="alert"]').text()).toContain('Could not reach the server.');
+      expect(wrapper.text()).toContain('Still here');
+      expect(wrapper.find('button[aria-label="Close issue #3"]').exists()).toBe(true);
+    });
   });
 });

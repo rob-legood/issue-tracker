@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { CreateIssueRequest, Issue } from '@issue-tracker/shared';
+import type { Comment, CreateIssueRequest, Issue, IssueStatus, UpdateIssueRequest } from '@issue-tracker/shared';
 import * as issuesApi from '@/api/issues';
+import { ApiError } from '@/api/http';
 import { PAGE_SIZE } from '@/constants/issues';
 
 export const useIssuesStore = defineStore('issues', () => {
@@ -11,6 +12,13 @@ export const useIssuesStore = defineStore('issues', () => {
   const limit = ref(PAGE_SIZE);
   const loading = ref(false);
   const error = ref<string | null>(null);
+
+  // The issue open on the issue page, and its comments.
+  const current = ref<Issue | null>(null);
+  const comments = ref<Comment[]>([]);
+  const currentLoading = ref(false);
+  const currentError = ref<string | null>(null);
+  const currentNotFound = ref(false);
 
   const totalPages = computed(() => Math.max(1, Math.ceil(total.value / limit.value)));
 
@@ -42,5 +50,72 @@ export const useIssuesStore = defineStore('issues', () => {
     return issuesApi.createIssue(input);
   }
 
-  return { items, total, page, limit, loading, error, totalPages, fetchIssues, createIssue };
+  let latestIssueRequest = 0;
+
+  async function fetchIssue(id: string): Promise<void> {
+    const requestId = ++latestIssueRequest;
+    if (current.value?.id !== id) {
+      current.value = null;
+      comments.value = [];
+    }
+    currentLoading.value = true;
+    currentError.value = null;
+    currentNotFound.value = false;
+    try {
+      const [issue, issueComments] = await Promise.all([issuesApi.getIssue(id), issuesApi.listComments(id)]);
+      if (requestId !== latestIssueRequest) return;
+      current.value = issue;
+      comments.value = issueComments;
+    } catch (err) {
+      if (requestId !== latestIssueRequest) return;
+      if (err instanceof ApiError && err.status === 404) currentNotFound.value = true;
+      else currentError.value = err instanceof Error ? err.message : 'Could not load the issue.';
+    } finally {
+      if (requestId === latestIssueRequest) currentLoading.value = false;
+    }
+  }
+
+  /** Puts a fresh copy of an issue everywhere the store shows it. */
+  function replaceIssue(issue: Issue) {
+    if (current.value?.id === issue.id) current.value = issue;
+    const index = items.value.findIndex((item) => item.id === issue.id);
+    if (index !== -1) items.value[index] = issue;
+  }
+
+  /** Updates an issue. Throws ApiError on failure so the form can show field errors. */
+  async function updateIssue(id: string, input: UpdateIssueRequest): Promise<Issue> {
+    const issue = await issuesApi.updateIssue(id, input);
+    if (current.value?.id === issue.id && currentLoading.value) {
+      // A load that started before this update would bring back stale data.
+      latestIssueRequest++;
+      currentLoading.value = false;
+    }
+    replaceIssue(issue);
+    return issue;
+  }
+
+  /** Closes or reopens an issue. Throws ApiError on failure. */
+  function setStatus(id: string, status: IssueStatus): Promise<Issue> {
+    return updateIssue(id, { status });
+  }
+
+  return {
+    items,
+    total,
+    page,
+    limit,
+    loading,
+    error,
+    totalPages,
+    current,
+    comments,
+    currentLoading,
+    currentError,
+    currentNotFound,
+    fetchIssues,
+    createIssue,
+    fetchIssue,
+    updateIssue,
+    setStatus,
+  };
 });

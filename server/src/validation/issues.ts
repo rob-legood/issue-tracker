@@ -8,37 +8,61 @@ const label = z
   .min(1, 'Labels cannot be empty')
   .max(30, 'Each label must be at most 30 characters');
 
+/** Field rules shared by create and update. Defaults belong to create only. */
+const fields = {
+  title: z
+    .string({ error: 'Title is required' })
+    .trim()
+    .min(1, 'Title is required')
+    .max(200, 'Title must be at most 200 characters'),
+  description: z
+    .string({ error: 'Description must be text' })
+    .max(10_000, 'Description must be at most 10,000 characters'),
+  status: z.enum(ISSUE_STATUSES, { error: 'Status must be open, in_progress or closed' }),
+  priority: z.enum(ISSUE_PRIORITIES, { error: 'Priority must be low, medium, high or urgent' }),
+  labels: z
+    .array(label, { error: 'Labels must be a list of text' })
+    .max(10, 'At most 10 labels are allowed')
+    .transform((labels) => [...new Set(labels)]),
+  assignee: z
+    .string({ error: 'Assignee must be text or null' })
+    .trim()
+    .max(100, 'Assignee must be at most 100 characters')
+    .nullable()
+    // An empty name means nobody is assigned.
+    .transform((assignee) => (assignee === '' ? null : assignee)),
+};
+
+const bodyError = {
+  error: (issue: { code?: string }) =>
+    issue.code === 'unrecognized_keys' ? 'Unknown field' : 'Request body must be an object',
+};
+
 export const createIssueSchema = z.strictObject(
   {
-    title: z
-      .string({ error: 'Title is required' })
-      .trim()
-      .min(1, 'Title is required')
-      .max(200, 'Title must be at most 200 characters'),
-    description: z
-      .string({ error: 'Description must be text' })
-      .max(10_000, 'Description must be at most 10,000 characters')
-      .default(''),
-    status: z.enum(ISSUE_STATUSES, { error: 'Status must be open, in_progress or closed' }).default('open'),
-    priority: z
-      .enum(ISSUE_PRIORITIES, { error: 'Priority must be low, medium, high or urgent' })
-      .default('medium'),
-    labels: z
-      .array(label, { error: 'Labels must be a list of text' })
-      .max(10, 'At most 10 labels are allowed')
-      .default([])
-      .transform((labels) => [...new Set(labels)]),
-    assignee: z
-      .string({ error: 'Assignee must be text or null' })
-      .trim()
-      .max(100, 'Assignee must be at most 100 characters')
-      .nullable()
-      .default(null)
-      // An empty name means nobody is assigned.
-      .transform((assignee) => (assignee === '' ? null : assignee)),
+    title: fields.title,
+    description: fields.description.default(''),
+    status: fields.status.default('open'),
+    priority: fields.priority.default('medium'),
+    labels: fields.labels.default([]),
+    assignee: fields.assignee.default(null),
   },
-  { error: (issue) => (issue.code === 'unrecognized_keys' ? 'Unknown field' : 'Request body must be an object') },
+  bodyError,
 );
+
+export const updateIssueSchema = z
+  .strictObject(
+    {
+      title: fields.title.optional(),
+      description: fields.description.optional(),
+      status: fields.status.optional(),
+      priority: fields.priority.optional(),
+      labels: fields.labels.optional(),
+      assignee: fields.assignee.optional(),
+    },
+    bodyError,
+  )
+  .refine((input) => Object.keys(input).length > 0, 'Provide at least one field to update');
 
 const positiveInt = (field: string, max?: number) => {
   let schema = z.coerce

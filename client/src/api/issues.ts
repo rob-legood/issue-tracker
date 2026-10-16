@@ -1,4 +1,11 @@
-import type { CreateIssueRequest, Issue, ListIssuesQuery, Page } from '@issue-tracker/shared';
+import type {
+  Comment,
+  CreateIssueRequest,
+  Issue,
+  ListIssuesQuery,
+  Page,
+  UpdateIssueRequest,
+} from '@issue-tracker/shared';
 import { request } from './http';
 
 export function listIssues(query: ListIssuesQuery = {}): Promise<Page<Issue>> {
@@ -11,4 +18,16 @@ export function listIssues(query: ListIssuesQuery = {}): Promise<Page<Issue>> {
 
 export function createIssue(input: CreateIssueRequest): Promise<Issue> {
   return request<Issue>('/issues', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function getIssue(id: string): Promise<Issue> {
+  return request<Issue>(`/issues/${encodeURIComponent(id)}`);
+}
+
+export function updateIssue(id: string, input: UpdateIssueRequest): Promise<Issue> {
+  return request<Issue>(`/issues/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export function listComments(issueId: string): Promise<Comment[]> {
+  return request<Comment[]>(`/issues/${encodeURIComponent(issueId)}/comments`);
 }
