@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
-import type { CreateIssueRequest, IssuePriority, IssueStatus } from '@issue-tracker/shared';
+import type { CreateIssueRequest, Issue, IssuePriority, IssueStatus } from '@issue-tracker/shared';
 import { useIssuesStore } from '@/stores/issues';
 import { ApiError } from '@/api/http';
 import { PRIORITY_LABELS, STATUS_LABELS } from '@/constants/issues';
@@ -24,6 +24,9 @@ const form = reactive({
 const fieldErrors = ref<Partial<Record<Field, string>>>({});
 const formError = ref<string | null>(null);
 const submitting = ref(false);
+/** Set once the issue exists, so a failed navigation can't lead to a duplicate. */
+const created = ref<Issue | null>(null);
+const formEl = ref<HTMLFormElement | null>(null);
 
 const hasFieldErrors = computed(() => Object.keys(fieldErrors.value).length > 0);
 
@@ -64,23 +67,40 @@ function showError(err: unknown) {
   formError.value = err instanceof Error ? err.message : 'Could not create the issue.';
 }
 
+/** Moves keyboard and screen-reader focus to the first field with an error. */
+async function focusFirstInvalidField() {
+  await nextTick();
+  formEl.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+}
+
 async function submit() {
+  if (created.value) return;
   fieldErrors.value = {};
   formError.value = null;
 
   if (!form.title.trim()) {
     fieldErrors.value = { title: 'Title is required' };
+    await focusFirstInvalidField();
     return;
   }
 
   submitting.value = true;
+  let issue: Issue;
   try {
-    const issue = await store.createIssue(toRequest());
-    await router.push({ name: 'issue', params: { id: issue.id } });
+    issue = await store.createIssue(toRequest());
   } catch (err) {
     showError(err);
+    await focusFirstInvalidField();
+    return;
   } finally {
     submitting.value = false;
+  }
+
+  created.value = issue;
+  try {
+    await router.push({ name: 'issue', params: { id: issue.id } });
+  } catch {
+    // The issue exists, so the template shows a link to it instead of an error.
   }
 }
 </script>
@@ -92,7 +112,16 @@ async function submit() {
     </h2>
 
     <p
-      v-if="formError"
+      v-if="created"
+      role="status"
+    >
+      Issue #{{ created.number }} was created, but its page didn't open.
+      <RouterLink :to="{ name: 'issue', params: { id: created.id } }">
+        Open issue #{{ created.number }}
+      </RouterLink>
+    </p>
+    <p
+      v-else-if="formError"
       role="alert"
     >
       Could not create the issue: {{ formError }}
@@ -105,6 +134,7 @@ async function submit() {
     </p>
 
     <form
+      ref="formEl"
       novalidate
       @submit.prevent="submit"
     >
@@ -243,7 +273,7 @@ async function submit() {
       <div class="actions">
         <button
           type="submit"
-          :disabled="submitting"
+          :disabled="submitting || created !== null"
         >
           {{ submitting ? 'Creating…' : 'Create issue' }}
         </button>

@@ -19,4 +19,10 @@ describe('routes', () => {
     expect(router.resolve('/issues/new').name).toBe('issue-new');
     expect(router.resolve('/issues/abc').name).toBe('issue');
   });
+
+  it.each(['/foo', '/issues/abc/extra'])('sends an unknown URL like %s to the not-found page', (url) => {
+    const router = createRouter({ history: createMemoryHistory(), routes });
+
+    expect(router.resolve(url).name).toBe('not-found');
+  });
 });

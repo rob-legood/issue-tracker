@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import IssueCreateView from './IssueCreateView.vue';
@@ -13,9 +13,15 @@ vi.mock('@/api/issues');
 async function mountForm() {
   const router = createRouter({ history: createMemoryHistory(), routes });
   await router.push('/issues/new');
-  const wrapper = mount(IssueCreateView, { global: { plugins: [createPinia(), router] } });
+  // Attached to the document so focus can be checked.
+  const wrapper = mount(IssueCreateView, {
+    attachTo: document.body,
+    global: { plugins: [createPinia(), router] },
+  });
   return { wrapper, router };
 }
+
+enableAutoUnmount(afterEach);
 
 describe('IssueCreateView', () => {
   beforeEach(() => {
@@ -85,6 +91,48 @@ describe('IssueCreateView', () => {
     expect(wrapper.find('#issue-title-error').text()).toBe('Title is required');
     expect(wrapper.find('#issue-title').attributes('aria-invalid')).toBe('true');
     expect(wrapper.find('#issue-title').attributes('aria-describedby')).toBe('issue-title-error');
+    expect(document.activeElement).toBe(wrapper.find('#issue-title').element);
+  });
+
+  it('moves focus to the first field with a server validation error', async () => {
+    vi.mocked(createIssue).mockRejectedValue(
+      new ApiError(400, 'VALIDATION_ERROR', 'Invalid', [
+        { field: 'assignee', message: 'Assignee must be at most 100 characters' },
+        { field: 'labels.0', message: 'Each label must be at most 30 characters' },
+      ]),
+    );
+    const { wrapper } = await mountForm();
+
+    await wrapper.find('#issue-title').setValue('Valid title');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // Labels comes before assignee in the form, whatever order the server reports.
+    expect(document.activeElement).toBe(wrapper.find('#issue-labels').element);
+  });
+
+  it('shows a link to the new issue, not an error, if its page fails to open', async () => {
+    vi.mocked(createIssue).mockResolvedValue(makeIssue({ id: 'new-id', number: 7 }));
+    const { wrapper, router } = await mountForm();
+    router.beforeEach((to) => {
+      if (to.name === 'issue') throw new Error('navigation broke');
+    });
+
+    await wrapper.find('#issue-title').setValue('Login fails');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    const status = wrapper.find('[role="status"]');
+    expect(status.text()).toContain('Issue #7 was created');
+    expect(status.find('a').attributes('href')).toBe('/issues/new-id');
+    expect(router.currentRoute.value.fullPath).toBe('/issues/new');
+
+    // Submitting again must not create a duplicate.
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(createIssue).toHaveBeenCalledTimes(1);
   });
 
   it('shows server validation errors next to their fields', async () => {
