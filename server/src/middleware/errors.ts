@@ -27,6 +27,20 @@ function isJsonParseError(err: unknown): boolean {
   );
 }
 
+/** Messages for the other request bodies express.json() turns away, keyed by its error type. */
+const BODY_ERRORS: Record<string, string> = {
+  'entity.too.large': 'Request body is too large',
+  'charset.unsupported': 'Request body must be UTF-8',
+  'encoding.unsupported': 'Request body encoding is not supported',
+  'request.aborted': 'Request body was not fully received',
+  'request.size.invalid': 'Request body size does not match Content-Length',
+};
+
+function bodyErrorMessage(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null || !('type' in err) || typeof err.type !== 'string') return undefined;
+  return BODY_ERRORS[err.type];
+}
+
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   let status: number;
   let body: ApiErrorBody;
@@ -60,6 +74,11 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
         details: [{ field: 'body', message: 'Malformed JSON' }],
       },
     };
+  } else if (bodyErrorMessage(err)) {
+    // A problem with the request, not the server, so it is never a 500.
+    status = 400;
+    const message = bodyErrorMessage(err)!;
+    body = { error: { code: 'VALIDATION_ERROR', message, details: [{ field: 'body', message }] } };
   } else if (err instanceof HttpError) {
     status = err.status;
     body = { error: { code: err.code, message: err.message } };

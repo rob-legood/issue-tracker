@@ -23,6 +23,33 @@ describe('app', () => {
     expect(res.body.error.details).toEqual([{ field: 'body', message: 'Malformed JSON' }]);
   });
 
+  it('returns VALIDATION_ERROR, not a 500, for a body over the size limit', async () => {
+    const res = await request(createApp())
+      .post('/api/issues')
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ title: 'T', description: 'x'.repeat(200_000) }));
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Request body is too large',
+        details: [{ field: 'body', message: 'Request body is too large' }],
+      },
+    });
+  });
+
+  it('returns VALIDATION_ERROR, not a 500, for an unsupported charset', async () => {
+    const res = await request(createApp())
+      .post('/api/issues')
+      .set('Content-Type', 'application/json; charset=latin1')
+      .send('{"title":"T"}');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details).toEqual([{ field: 'body', message: 'Request body must be UTF-8' }]);
+  });
+
   it('turns a ZodError into VALIDATION_ERROR with details by field', async () => {
     const app = createApp((api) => {
       api.post('/test-validate', (req, res) => {

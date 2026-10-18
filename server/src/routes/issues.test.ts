@@ -990,3 +990,48 @@ describe('commentCount', () => {
     expect(res.body.error.details).toEqual(expect.arrayContaining([{ field: 'commentCount', message: expect.any(String) }]));
   });
 });
+
+describe('PATCH /api/issues/:id under concurrent edits', () => {
+  it('never leaves closedAt out of step with status when edits race', async () => {
+    for (let round = 0; round < 15; round++) {
+      const { body: issue } = await createIssue({ title: `Race ${round}` });
+
+      await Promise.all([
+        request(app).patch(`/api/issues/${issue.id}`).send({ status: 'closed' }),
+        request(app).patch(`/api/issues/${issue.id}`).send({ status: 'in_progress' }),
+      ]);
+
+      const { body: after } = await request(app).get(`/api/issues/${issue.id}`);
+      if (after.status === 'closed') expect(after.closedAt).toEqual(expect.any(String));
+      else expect(after.closedAt).toBeNull();
+    }
+  });
+
+  it('stores text that looks like a field path as plain text', async () => {
+    const { body: issue } = await createIssue({ title: 'Original' });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issue.id}`)
+      .send({ title: '$status', description: '$$NOW', labels: ['$priority'], assignee: '$title' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      title: '$status',
+      description: '$$NOW',
+      labels: ['$priority'],
+      assignee: '$title',
+    });
+  });
+});
+
+describe('GET /api/issues with a repeated query key', () => {
+  it.each(['status=open&status=closed', 'priority=low&priority=high', 'sort=newest&sort=oldest', 'page=1&page=2', 'q=a&q=b'])(
+    'rejects ?%s with 400',
+    async (query) => {
+      const res = await request(app).get(`/api/issues?${query}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    },
+  );
+});

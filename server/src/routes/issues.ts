@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import mongoose from 'mongoose';
 import type { QueryFilter, Types } from 'mongoose';
-import type { Issue, IssuePriority, IssueSort, Page } from '@issue-tracker/shared';
+import type { Issue, IssuePriority, IssueSort, IssueStatus, Page } from '@issue-tracker/shared';
+import { HttpError } from '../middleware/errors.ts';
 import { IssueModel, toIssue } from '../models/issue.ts';
 import type { IssueDoc } from '../models/issue.ts';
 import { CommentModel } from '../models/comment.ts';
@@ -88,14 +90,32 @@ issuesRouter.get('/issues/:id', async (req, res) => {
   res.json(body);
 });
 
+/**
+ * Where `closedAt` goes for a status change. It is worked out inside the update from the
+ * stored status, so two edits at the same moment can't leave `closedAt` out of step with it.
+ */
+function closedAtFor(status: IssueStatus | undefined) {
+  if (status === undefined) return '$closedAt';
+  if (status !== 'closed') return null;
+  // Closing an issue that is already closed keeps the time it was first closed.
+  return { $cond: [{ $eq: ['$status', 'closed'] }, '$closedAt', '$$NOW'] };
+}
+
 issuesRouter.patch('/issues/:id', async (req, res) => {
   const input = updateIssueSchema.parse(req.body);
-  const doc = await findIssueOr404(req.params.id);
+  const { id } = req.params;
 
-  if (input.status === 'closed' && doc.status !== 'closed') doc.closedAt = new Date();
-  else if (input.status !== undefined && input.status !== 'closed') doc.closedAt = null;
-  doc.set(input);
-  await doc.save();
+  // One atomic update rather than read, change, save. Every value goes through $literal,
+  // so a title such as "$status" is stored as text, not read as a field path.
+  const values = Object.fromEntries(Object.entries(input).map(([key, value]) => [key, { $literal: value }]));
+  const doc = mongoose.isValidObjectId(id)
+    ? await IssueModel.findOneAndUpdate(
+        { _id: id },
+        [{ $set: { ...values, closedAt: closedAtFor(input.status), updatedAt: '$$NOW' } }],
+        { new: true, updatePipeline: true, timestamps: false },
+      ).lean()
+    : null;
+  if (!doc) throw new HttpError(404, 'NOT_FOUND', 'Issue not found');
 
   const body: Issue = toIssue(doc, await CommentModel.countDocuments({ issueId: doc._id }));
   res.json(body);
