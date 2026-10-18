@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import type { Issue, IssuePriority, IssueStatus, UpdateIssueRequest } from '@issue-tracker/shared';
+import type { Comment, Issue, IssuePriority, IssueStatus, UpdateIssueRequest } from '@issue-tracker/shared';
 import { useIssuesStore } from '@/stores/issues';
 import { ApiError } from '@/api/http';
 import { PRIORITY_LABELS, STATUS_LABELS } from '@/constants/issues';
@@ -150,12 +150,96 @@ async function save() {
   await stopEditing();
 }
 
+// Comments.
+
+type CommentField = 'author' | 'body';
+
+const commentForm = reactive({ author: '', body: '' });
+const commentFieldErrors = ref<Partial<Record<CommentField, string>>>({});
+const commentFormError = ref<string | null>(null);
+const commentSaving = ref(false);
+const commentFormEl = ref<HTMLFormElement | null>(null);
+/** Ids of comments being deleted, so their buttons can't be clicked twice. */
+const commentsDeleting = ref(new Set<string>());
+const commentDeleteError = ref<string | null>(null);
+const commentsHeading = ref<HTMLHeadingElement | null>(null);
+
+function resetCommentErrors() {
+  commentFieldErrors.value = {};
+  commentFormError.value = null;
+  commentDeleteError.value = null;
+}
+
+function showCommentError(err: unknown) {
+  if (err instanceof ApiError && err.code === 'VALIDATION_ERROR' && err.details.length) {
+    const errors: Partial<Record<CommentField, string>> = {};
+    const unplaced: string[] = [];
+    for (const detail of err.details) {
+      if (detail.field === 'author' || detail.field === 'body') errors[detail.field] ??= detail.message;
+      else unplaced.push(detail.message);
+    }
+    commentFieldErrors.value = errors;
+    commentFormError.value = unplaced.length ? unplaced.join(' ') : null;
+    return;
+  }
+  commentFormError.value = err instanceof Error ? err.message : 'Could not add the comment.';
+}
+
+async function addComment() {
+  if (commentSaving.value) return;
+  resetCommentErrors();
+
+  const input = { author: commentForm.author.trim(), body: commentForm.body.trim() };
+  const errors: Partial<Record<CommentField, string>> = {};
+  if (!input.author) errors.author = 'Author is required';
+  if (!input.body) errors.body = 'Comment is required';
+  if (Object.keys(errors).length) {
+    commentFieldErrors.value = errors;
+    await nextTick();
+    commentFormEl.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+    return;
+  }
+
+  commentSaving.value = true;
+  const id = issueId.value;
+  try {
+    await store.addComment(id, input);
+    // Keep the author, so someone writing several comments only types their name once.
+    // Leave the body alone if the user has moved to another issue meanwhile.
+    if (issueId.value === id) commentForm.body = '';
+  } catch (err) {
+    showCommentError(err);
+    await nextTick();
+    commentFormEl.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  } finally {
+    commentSaving.value = false;
+  }
+}
+
+async function deleteComment(comment: Comment) {
+  if (!window.confirm(`Delete this comment by ${comment.author}? This cannot be undone.`)) return;
+  commentsDeleting.value.add(comment.id);
+  commentDeleteError.value = null;
+  try {
+    await store.deleteComment(issueId.value, comment.id);
+    // The focused Delete button is gone, so give keyboard users a place to continue from.
+    await nextTick();
+    commentsHeading.value?.focus();
+  } catch (err) {
+    commentDeleteError.value = err instanceof Error ? err.message : 'Could not delete the comment.';
+  } finally {
+    commentsDeleting.value.delete(comment.id);
+  }
+}
+
 // Declared last because it runs immediately and resets the state above.
 watch(
   issueId,
   (id) => {
     editing.value = false;
     statusError.value = null;
+    resetCommentErrors();
+    commentForm.body = '';
     void store.fetchIssue(id);
   },
   { immediate: true },
@@ -304,6 +388,7 @@ watch(
 
         <form
           ref="formEl"
+          aria-label="Edit issue"
           novalidate
           @submit.prevent="save"
         >
@@ -453,9 +538,19 @@ watch(
       </template>
 
       <section aria-labelledby="comments-heading">
-        <h3 id="comments-heading">
+        <h3
+          id="comments-heading"
+          ref="commentsHeading"
+          tabindex="-1"
+        >
           Comments
         </h3>
+        <p
+          v-if="commentDeleteError"
+          role="alert"
+        >
+          Could not delete the comment: {{ commentDeleteError }}
+        </p>
         <ol
           v-if="store.comments.length"
           class="comments"
@@ -468,6 +563,14 @@ watch(
             <p class="comment-meta">
               <strong>{{ comment.author }}</strong>
               <time :datetime="comment.createdAt">{{ formatDate(comment.createdAt) }}</time>
+              <button
+                type="button"
+                :aria-label="`Delete comment by ${comment.author}`"
+                :disabled="commentsDeleting.has(comment.id)"
+                @click="deleteComment(comment)"
+              >
+                Delete
+              </button>
             </p>
             <p class="comment-body">
               {{ comment.body }}
@@ -477,6 +580,71 @@ watch(
         <p v-else>
           No comments yet.
         </p>
+
+        <form
+          ref="commentFormEl"
+          aria-label="Add a comment"
+          novalidate
+          @submit.prevent="addComment"
+        >
+          <h4>Add a comment</h4>
+
+          <p
+            v-if="commentFormError"
+            role="alert"
+          >
+            Could not add the comment: {{ commentFormError }}
+          </p>
+
+          <div class="field">
+            <label for="comment-author">Author</label>
+            <input
+              id="comment-author"
+              v-model="commentForm.author"
+              type="text"
+              maxlength="100"
+              required
+              :aria-invalid="commentFieldErrors.author ? 'true' : undefined"
+              :aria-describedby="commentFieldErrors.author ? 'comment-author-error' : undefined"
+            >
+            <p
+              v-if="commentFieldErrors.author"
+              id="comment-author-error"
+              class="field-error"
+            >
+              {{ commentFieldErrors.author }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label for="comment-body">Comment</label>
+            <textarea
+              id="comment-body"
+              v-model="commentForm.body"
+              rows="4"
+              maxlength="5000"
+              required
+              :aria-invalid="commentFieldErrors.body ? 'true' : undefined"
+              :aria-describedby="commentFieldErrors.body ? 'comment-body-error' : undefined"
+            />
+            <p
+              v-if="commentFieldErrors.body"
+              id="comment-body-error"
+              class="field-error"
+            >
+              {{ commentFieldErrors.body }}
+            </p>
+          </div>
+
+          <div class="actions">
+            <button
+              type="submit"
+              :disabled="commentSaving"
+            >
+              Add comment
+            </button>
+          </div>
+        </form>
       </section>
     </template>
   </section>

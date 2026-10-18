@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type {
   Comment,
+  CreateCommentRequest,
   CreateIssueRequest,
   Issue,
   IssueStatus,
@@ -107,6 +108,19 @@ export const useIssuesStore = defineStore('issues', () => {
     return updateIssue(id, { status });
   }
 
+  /** Adds a comment. Throws ApiError on failure so the form can show field errors. */
+  async function addComment(issueId: string, input: CreateCommentRequest): Promise<Comment> {
+    const comment = await issuesApi.createComment(issueId, input);
+    if (current.value?.id === issueId) comments.value.push(comment);
+    return comment;
+  }
+
+  /** Deletes a comment. Throws ApiError on failure and leaves the list as it was. */
+  async function deleteComment(issueId: string, commentId: string): Promise<void> {
+    await issuesApi.deleteComment(issueId, commentId);
+    comments.value = comments.value.filter((comment) => comment.id !== commentId);
+  }
+
   return {
     items,
     total,
@@ -125,5 +139,7 @@ export const useIssuesStore = defineStore('issues', () => {
     fetchIssue,
     updateIssue,
     setStatus,
+    addComment,
+    deleteComment,
   };
 });

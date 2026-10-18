@@ -76,6 +76,12 @@ export interface Comment {
   createdAt: string;
 }
 
+/** Body of POST /api/issues/:id/comments. */
+export interface CreateCommentRequest {
+  author: string;
+  body: string;
+}
+
 /** Body of PATCH /api/issues/:id: any non-empty subset of the editable fields. */
 export type UpdateIssueRequest = Partial<
   Pick<Issue, 'title' | 'description' | 'status' | 'priority' | 'labels' | 'assignee'>

@@ -5,7 +5,7 @@ import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import IssueDetailView from './IssueDetailView.vue';
 import { routes } from '@/router';
-import { getIssue, listComments, updateIssue } from '@/api/issues';
+import { createComment, deleteComment, getIssue, listComments, updateIssue } from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { makeComment, makeIssue } from '@/test/factories';
 
@@ -155,15 +155,6 @@ describe('IssueDetailView', () => {
       expect(wrapper.find('[data-test="comment"]').exists()).toBe(false);
     });
 
-    it('has no way to add or delete comments yet', async () => {
-      vi.mocked(listComments).mockResolvedValue([makeComment()]);
-
-      const { wrapper } = await mountAt();
-
-      expect(buttonByText(wrapper, 'Delete')).toBeUndefined();
-      expect(wrapper.find('textarea').exists()).toBe(false);
-    });
-
     it('shows a not found message with a link back to the list on a 404', async () => {
       vi.mocked(getIssue).mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Issue not found'));
       vi.mocked(listComments).mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Issue not found'));
@@ -216,7 +207,7 @@ describe('IssueDetailView', () => {
     it('does not show the form until Edit is clicked', async () => {
       const { wrapper } = await mountAt();
 
-      expect(wrapper.find('form').exists()).toBe(false);
+      expect(wrapper.find('form[aria-label="Edit issue"]').exists()).toBe(false);
       expect(buttonByText(wrapper, 'Edit')).toBeDefined();
     });
 
@@ -256,7 +247,7 @@ describe('IssueDetailView', () => {
       await buttonByText(wrapper, 'Cancel')!.trigger('click');
 
       expect(updateIssue).not.toHaveBeenCalled();
-      expect(wrapper.find('form').exists()).toBe(false);
+      expect(wrapper.find('form[aria-label="Edit issue"]').exists()).toBe(false);
       expect(wrapper.text()).toContain('Login fails');
       expect(wrapper.text()).not.toContain('Changed my mind');
     });
@@ -303,7 +294,7 @@ describe('IssueDetailView', () => {
         labels: ['UI'],
         assignee: null,
       });
-      expect(wrapper.find('form').exists()).toBe(false);
+      expect(wrapper.find('form[aria-label="Edit issue"]').exists()).toBe(false);
       expect(wrapper.find('h2').text()).toContain('Login works');
       expect(wrapper.text()).toContain('Fixed');
       expect(wrapper.text()).toContain('Unassigned');
@@ -470,6 +461,227 @@ describe('IssueDetailView', () => {
 
       expect(wrapper.find('[role="alert"]').text()).toContain('Could not reach the server.');
       expect(buttonByText(wrapper, 'Close issue')).toBeDefined();
+    });
+  });
+
+  describe('comments', () => {
+    beforeEach(() => {
+      vi.mocked(createComment).mockReset();
+      vi.mocked(deleteComment).mockReset();
+    });
+
+    function commentForm(wrapper: VueWrapper) {
+      return wrapper.find('form[aria-label="Add a comment"]');
+    }
+
+    function fieldByLabel(wrapper: VueWrapper, text: string) {
+      const label = commentForm(wrapper)
+        .findAll('label')
+        .find((l) => l.text() === text);
+      return commentForm(wrapper).find('#' + label!.attributes('for'));
+    }
+
+    async function fill(wrapper: VueWrapper, author: string, body: string) {
+      await fieldByLabel(wrapper, 'Author').setValue(author);
+      await fieldByLabel(wrapper, 'Comment').setValue(body);
+    }
+
+    async function submitComment(wrapper: VueWrapper) {
+      await commentForm(wrapper).trigger('submit');
+      await flushPromises();
+    }
+
+    function commentTexts(wrapper: VueWrapper) {
+      return wrapper.findAll('[data-test="comment"]').map((c) => c.text());
+    }
+
+    describe('adding', () => {
+      it('shows labelled Author and Comment fields and an Add comment button', async () => {
+        const { wrapper } = await mountAt();
+
+        expect(fieldByLabel(wrapper, 'Author').element.tagName).toBe('INPUT');
+        expect(fieldByLabel(wrapper, 'Comment').element.tagName).toBe('TEXTAREA');
+        expect(commentForm(wrapper).find('button[type=submit]').text()).toBe('Add comment');
+      });
+
+      it('sends trimmed author and body for the issue in the URL', async () => {
+        vi.mocked(createComment).mockResolvedValue(makeComment({ issueId: 'abc' }));
+        const { wrapper } = await mountAt('/issues/abc');
+
+        await fill(wrapper, '  Sam  ', '  Looks wrong \n');
+        await submitComment(wrapper);
+
+        expect(createComment).toHaveBeenCalledWith('abc', { author: 'Sam', body: 'Looks wrong' });
+      });
+
+      it('shows the new comment at the end of the list', async () => {
+        vi.mocked(listComments).mockResolvedValue([makeComment({ author: 'Alex', body: 'Earlier' })]);
+        vi.mocked(createComment).mockResolvedValue(makeComment({ author: 'Sam', body: 'Just added' }));
+        const { wrapper } = await mountAt();
+
+        await fill(wrapper, 'Sam', 'Just added');
+        await submitComment(wrapper);
+
+        const texts = commentTexts(wrapper);
+        expect(texts).toHaveLength(2);
+        expect(texts[0]).toContain('Earlier');
+        expect(texts[1]).toContain('Just added');
+        expect(wrapper.text()).not.toContain('No comments yet.');
+      });
+
+      it('clears the Comment field but keeps the Author after success', async () => {
+        vi.mocked(createComment).mockResolvedValue(makeComment());
+        const { wrapper } = await mountAt();
+
+        await fill(wrapper, 'Sam', 'Hello');
+        await submitComment(wrapper);
+
+        expect((fieldByLabel(wrapper, 'Comment').element as HTMLTextAreaElement).value).toBe('');
+        expect((fieldByLabel(wrapper, 'Author').element as HTMLInputElement).value).toBe('Sam');
+      });
+
+      it('disables the submit button while saving', async () => {
+        vi.mocked(createComment).mockReturnValue(new Promise(() => {}));
+        const { wrapper } = await mountAt();
+
+        await fill(wrapper, 'Sam', 'Hello');
+        await submitComment(wrapper);
+
+        expect(commentForm(wrapper).find('button[type=submit]').attributes('disabled')).toBeDefined();
+      });
+
+      it('shows server validation messages next to their fields', async () => {
+        vi.mocked(createComment).mockRejectedValue(
+          new ApiError(400, 'VALIDATION_ERROR', 'Invalid', [
+            { field: 'author', message: 'Author is required' },
+            { field: 'body', message: 'Body is too long' },
+          ]),
+        );
+        const { wrapper } = await mountAt();
+
+        await fill(wrapper, 'Sam', 'Hello');
+        await submitComment(wrapper);
+
+        for (const [label, message] of [
+          ['Author', 'Author is required'],
+          ['Comment', 'Body is too long'],
+        ] as const) {
+          const field = fieldByLabel(wrapper, label);
+          expect(field.attributes('aria-invalid')).toBe('true');
+          const errorId = field.attributes('aria-describedby');
+          expect(errorId).toBeTruthy();
+          const error = commentForm(wrapper).find('#' + errorId);
+          expect(error.classes()).toContain('field-error');
+          expect(error.text()).toBe(message);
+        }
+      });
+
+      it('keeps the typed values after a validation error', async () => {
+        vi.mocked(createComment).mockRejectedValue(
+          new ApiError(400, 'VALIDATION_ERROR', 'Invalid', [{ field: 'body', message: 'Too long' }]),
+        );
+        const { wrapper } = await mountAt();
+
+        await fill(wrapper, 'Sam', 'Hello');
+        await submitComment(wrapper);
+
+        expect((fieldByLabel(wrapper, 'Comment').element as HTMLTextAreaElement).value).toBe('Hello');
+        expect((fieldByLabel(wrapper, 'Author').element as HTMLInputElement).value).toBe('Sam');
+      });
+
+      it('shows an alert with the error text for a non-validation failure', async () => {
+        vi.mocked(createComment).mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server.'));
+        const { wrapper } = await mountAt();
+
+        await fill(wrapper, 'Sam', 'Hello');
+        await submitComment(wrapper);
+
+        expect(wrapper.find('[role="alert"]').text()).toContain('Could not reach the server.');
+        expect(commentTexts(wrapper)).toHaveLength(0);
+      });
+    });
+
+    describe('deleting', () => {
+      let confirmSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        vi.mocked(listComments).mockResolvedValue([
+          makeComment({ id: 'c1', author: 'Alex', body: 'First' }),
+          makeComment({ id: 'c2', author: 'Sam', body: 'Second' }),
+        ]);
+      });
+
+      afterEach(() => {
+        confirmSpy.mockRestore();
+      });
+
+      function deleteButton(wrapper: VueWrapper, author: string) {
+        return wrapper.find(`button[aria-label="Delete comment by ${author}"]`);
+      }
+
+      it('gives each comment a Delete button labelled with its author', async () => {
+        const { wrapper } = await mountAt();
+
+        for (const author of ['Alex', 'Sam']) {
+          expect(deleteButton(wrapper, author).exists()).toBe(true);
+          expect(deleteButton(wrapper, author).text()).toBe('Delete');
+        }
+      });
+
+      it('asks for confirmation before deleting', async () => {
+        const { wrapper } = await mountAt();
+
+        await deleteButton(wrapper, 'Alex').trigger('click');
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not delete when the user cancels', async () => {
+        confirmSpy.mockReturnValue(false);
+        const { wrapper } = await mountAt();
+
+        await deleteButton(wrapper, 'Alex').trigger('click');
+        await flushPromises();
+
+        expect(deleteComment).not.toHaveBeenCalled();
+        expect(commentTexts(wrapper)).toHaveLength(2);
+      });
+
+      it('deletes the comment and removes it from the list when confirmed', async () => {
+        vi.mocked(deleteComment).mockResolvedValue(undefined);
+        const { wrapper } = await mountAt('/issues/abc');
+
+        await deleteButton(wrapper, 'Alex').trigger('click');
+        await flushPromises();
+
+        expect(deleteComment).toHaveBeenCalledWith('abc', 'c1');
+        const texts = commentTexts(wrapper);
+        expect(texts).toHaveLength(1);
+        expect(texts[0]).toContain('Second');
+      });
+
+      it('shows No comments yet. after deleting the last comment', async () => {
+        vi.mocked(listComments).mockResolvedValue([makeComment({ id: 'c1', author: 'Alex' })]);
+        vi.mocked(deleteComment).mockResolvedValue(undefined);
+        const { wrapper } = await mountAt();
+
+        await deleteButton(wrapper, 'Alex').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('No comments yet.');
+      });
+
+      it('shows an alert and keeps the comment when deleting fails', async () => {
+        vi.mocked(deleteComment).mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server.'));
+        const { wrapper } = await mountAt();
+
+        await deleteButton(wrapper, 'Alex').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('[role="alert"]').text()).toContain('Could not reach the server.');
+        expect(commentTexts(wrapper)).toHaveLength(2);
+      });
     });
   });
 });

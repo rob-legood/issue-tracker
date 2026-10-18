@@ -21,6 +21,12 @@ describe('request', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/health', expect.any(Object));
   });
 
+  it('resolves to undefined for a 204 response with no body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+
+    await expect(request('/issues/abc', { method: 'DELETE' })).resolves.toBeUndefined();
+  });
+
   it('throws an ApiError built from the API error body', async () => {
     vi.stubGlobal(
       'fetch',

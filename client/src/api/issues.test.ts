@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createIssue, getIssue, listComments, listIssues, updateIssue } from './issues';
+import { createComment, createIssue, deleteComment, getIssue, listComments, listIssues, updateIssue } from './issues';
 import { request } from './http';
 
 vi.mock('./http');
@@ -90,5 +90,32 @@ describe('issues API', () => {
     await listComments('abc123');
 
     expect(request).toHaveBeenCalledWith('/issues/abc123/comments');
+  });
+
+  it('creates a comment with a JSON POST', async () => {
+    await createComment('abc123', { author: 'Sam', body: 'Hi' });
+
+    expect(request).toHaveBeenCalledWith('/issues/abc123/comments', {
+      method: 'POST',
+      body: JSON.stringify({ author: 'Sam', body: 'Hi' }),
+    });
+  });
+
+  it('encodes the issue id when creating a comment', async () => {
+    await createComment('a/b', { author: 'Sam', body: 'Hi' });
+
+    expect(vi.mocked(request).mock.calls[0]?.[0]).toBe('/issues/a%2Fb/comments');
+  });
+
+  it('deletes a comment with a DELETE', async () => {
+    await deleteComment('abc123', 'c1');
+
+    expect(request).toHaveBeenCalledWith('/issues/abc123/comments/c1', { method: 'DELETE' });
+  });
+
+  it('encodes both ids when deleting a comment', async () => {
+    await deleteComment('a/b', 'c d');
+
+    expect(vi.mocked(request).mock.calls[0]?.[0]).toBe('/issues/a%2Fb/comments/c%20d');
   });
 });

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import type { Issue, Page } from '@issue-tracker/shared';
 import { useIssuesStore } from './issues';
-import { createIssue, getIssue, listComments, listIssues, updateIssue } from '@/api/issues';
+import { createComment, createIssue, deleteComment, getIssue, listComments, listIssues, updateIssue } from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { makeComment, makeIssue } from '@/test/factories';
 
@@ -338,6 +338,92 @@ describe('issues store', () => {
       const store = useIssuesStore();
 
       await expect(store.setStatus('abc', 'open')).rejects.toBe(error);
+    });
+  });
+
+  describe('addComment', () => {
+    beforeEach(() => {
+      vi.mocked(createComment).mockReset();
+    });
+
+    async function storeWithIssue(comments = [makeComment({ id: 'c1', body: 'old' })]) {
+      vi.mocked(getIssue).mockResolvedValue(makeIssue({ id: 'abc' }));
+      vi.mocked(listComments).mockResolvedValue(comments);
+      const store = useIssuesStore();
+      await store.fetchIssue('abc');
+      return store;
+    }
+
+    it('sends the input to the API and returns the new comment', async () => {
+      const created = makeComment({ id: 'c2', issueId: 'abc', author: 'Sam', body: 'new' });
+      vi.mocked(createComment).mockResolvedValue(created);
+      const store = await storeWithIssue();
+
+      const result = await store.addComment('abc', { author: 'Sam', body: 'new' });
+
+      expect(createComment).toHaveBeenCalledWith('abc', { author: 'Sam', body: 'new' });
+      expect(result).toEqual(created);
+    });
+
+    it('appends the new comment to the current issue comments', async () => {
+      const created = makeComment({ id: 'c2', issueId: 'abc', body: 'new' });
+      vi.mocked(createComment).mockResolvedValue(created);
+      const store = await storeWithIssue();
+
+      await store.addComment('abc', { author: 'Sam', body: 'new' });
+
+      expect(store.comments.map((c) => c.id)).toEqual(['c1', 'c2']);
+    });
+
+    it('does not touch the comments when another issue is open', async () => {
+      vi.mocked(createComment).mockResolvedValue(makeComment({ id: 'c2', issueId: 'other' }));
+      const store = await storeWithIssue();
+
+      await store.addComment('other', { author: 'Sam', body: 'new' });
+
+      expect(store.comments.map((c) => c.id)).toEqual(['c1']);
+    });
+
+    it('rethrows an ApiError and leaves the comments unchanged', async () => {
+      const error = new ApiError(400, 'VALIDATION_ERROR', 'Invalid', [{ field: 'body', message: 'Required' }]);
+      vi.mocked(createComment).mockRejectedValue(error);
+      const store = await storeWithIssue();
+
+      await expect(store.addComment('abc', { author: 'Sam', body: '' })).rejects.toBe(error);
+      expect(store.comments.map((c) => c.id)).toEqual(['c1']);
+    });
+  });
+
+  describe('deleteComment', () => {
+    beforeEach(() => {
+      vi.mocked(deleteComment).mockReset();
+    });
+
+    async function storeWithComments() {
+      vi.mocked(getIssue).mockResolvedValue(makeIssue({ id: 'abc' }));
+      vi.mocked(listComments).mockResolvedValue([makeComment({ id: 'c1' }), makeComment({ id: 'c2' })]);
+      const store = useIssuesStore();
+      await store.fetchIssue('abc');
+      return store;
+    }
+
+    it('calls the API and removes the comment from the list', async () => {
+      vi.mocked(deleteComment).mockResolvedValue(undefined);
+      const store = await storeWithComments();
+
+      await store.deleteComment('abc', 'c1');
+
+      expect(deleteComment).toHaveBeenCalledWith('abc', 'c1');
+      expect(store.comments.map((c) => c.id)).toEqual(['c2']);
+    });
+
+    it('rethrows an ApiError and leaves the list unchanged', async () => {
+      const error = new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server.');
+      vi.mocked(deleteComment).mockRejectedValue(error);
+      const store = await storeWithComments();
+
+      await expect(store.deleteComment('abc', 'c1')).rejects.toBe(error);
+      expect(store.comments.map((c) => c.id)).toEqual(['c1', 'c2']);
     });
   });
 });

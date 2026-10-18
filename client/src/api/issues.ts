@@ -1,5 +1,6 @@
 import type {
   Comment,
+  CreateCommentRequest,
   CreateIssueRequest,
   Issue,
   ListIssuesQuery,
@@ -36,4 +37,17 @@ export function updateIssue(id: string, input: UpdateIssueRequest): Promise<Issu
 
 export function listComments(issueId: string): Promise<Comment[]> {
   return request<Comment[]>(`/issues/${encodeURIComponent(issueId)}/comments`);
+}
+
+export function createComment(issueId: string, input: CreateCommentRequest): Promise<Comment> {
+  return request<Comment>(`/issues/${encodeURIComponent(issueId)}/comments`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteComment(issueId: string, commentId: string): Promise<void> {
+  return request<void>(`/issues/${encodeURIComponent(issueId)}/comments/${encodeURIComponent(commentId)}`, {
+    method: 'DELETE',
+  });
 }
