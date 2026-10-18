@@ -37,6 +37,7 @@ describe('POST /api/issues', () => {
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       closedAt: null,
+      commentCount: 0,
     });
     expect(new Date(res.body.createdAt).toISOString()).toBe(res.body.createdAt);
     expect(res.body).not.toHaveProperty('_id');
@@ -170,7 +171,7 @@ describe('POST /api/issues', () => {
 
     it('rejects an unknown field', () => expectInvalid({ title: 'T', colour: 'red' }, 'colour'));
 
-    it.each(['number', 'createdAt', 'updatedAt', 'closedAt', 'id'])(
+    it.each(['number', 'createdAt', 'updatedAt', 'closedAt', 'commentCount', 'id'])(
       'does not let the client set %s',
       (field) => expectInvalid({ title: 'T', [field]: 99 }, field),
     );
@@ -921,5 +922,71 @@ describe('PATCH /api/issues/:id', () => {
 
   it('returns 404 for a malformed id', async () => {
     expectNotFound(await patchIssue('not-an-object-id', { title: 'Nope' }));
+  });
+});
+
+describe('commentCount', () => {
+  function addComment(issueId: string) {
+    return request(app).post(`/api/issues/${issueId}/comments`).send({ author: 'Sam', body: 'Hello' });
+  }
+
+  it('counts the comments of each issue in the list, and 0 for none', async () => {
+    const [first, second, third] = await createIssues(3);
+    await addComment(first!.id);
+    await addComment(first!.id);
+    await addComment(third!.id);
+
+    const res = await request(app).get('/api/issues');
+
+    const counts = Object.fromEntries(res.body.items.map((issue: Issue) => [issue.id, issue.commentCount]));
+    expect(counts).toEqual({ [first!.id]: 2, [second!.id]: 0, [third!.id]: 1 });
+  });
+
+  it('counts comments for a filtered and sorted page', async () => {
+    const [first] = await createIssues(2);
+    await addComment(first!.id);
+
+    const res = await request(app).get('/api/issues?sort=priority&q=Issue 1');
+
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].commentCount).toBe(1);
+  });
+
+  it('counts comments on a single issue', async () => {
+    const [issue] = await createIssues(1);
+    await addComment(issue!.id);
+
+    const res = await request(app).get(`/api/issues/${issue!.id}`);
+
+    expect(res.body.commentCount).toBe(1);
+  });
+
+  it('counts comments in the PATCH response', async () => {
+    const [issue] = await createIssues(1);
+    await addComment(issue!.id);
+
+    const res = await request(app).patch(`/api/issues/${issue!.id}`).send({ status: 'closed' });
+
+    expect(res.body.commentCount).toBe(1);
+  });
+
+  it('goes down when a comment is deleted', async () => {
+    const [issue] = await createIssues(1);
+    const comment = await addComment(issue!.id);
+    await addComment(issue!.id);
+    await request(app).delete(`/api/issues/${issue!.id}/comments/${comment.body.id}`);
+
+    const res = await request(app).get(`/api/issues/${issue!.id}`);
+
+    expect(res.body.commentCount).toBe(1);
+  });
+
+  it('cannot be set with PATCH', async () => {
+    const [issue] = await createIssues(1);
+
+    const res = await request(app).patch(`/api/issues/${issue!.id}`).send({ commentCount: 5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.details).toEqual(expect.arrayContaining([{ field: 'commentCount', message: expect.any(String) }]));
   });
 });

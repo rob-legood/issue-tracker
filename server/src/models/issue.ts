@@ -47,8 +47,11 @@ export const IssueModel = mongoose.model<IssueDoc>('Issue', issueSchema);
 
 type IssueLike = Pick<HydratedDocument<IssueDoc>, '_id'> & IssueDoc;
 
-/** Converts a stored issue to the API shape: `id` instead of `_id`, ISO date strings. */
-export function toIssue(doc: IssueLike): Issue {
+/**
+ * Converts a stored issue to the API shape: `id` instead of `_id`, ISO date strings.
+ * Comments live in their own collection, so the caller counts them.
+ */
+export function toIssue(doc: IssueLike, commentCount: number): Issue {
   return {
     id: doc._id.toString(),
     number: doc.number,
@@ -61,5 +64,6 @@ export function toIssue(doc: IssueLike): Issue {
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
     closedAt: doc.closedAt ? doc.closedAt.toISOString() : null,
+    commentCount,
   };
 }

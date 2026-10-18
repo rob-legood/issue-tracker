@@ -7,7 +7,7 @@ The client and server both build against this document. The TypeScript types in 
 - Base path `/api`. Requests and responses are JSON.
 - Ids are strings in a field named `id`. Never expose `_id` or `__v`.
 - Dates are ISO 8601 strings in UTC, for example `2026-10-16T15:30:00.000Z`.
-- Request bodies are strict: an unknown field is a validation error. Clients can't set `number`, `createdAt`, `updatedAt` or `closedAt`.
+- Request bodies are strict: an unknown field is a validation error. Clients can't set `number`, `createdAt`, `updatedAt`, `closedAt` or `commentCount`.
 - A malformed id in the path (not a valid ObjectId) returns 404, the same as an id that doesn't exist. It never causes a 500.
 
 ### Errors
@@ -50,6 +50,7 @@ interface Issue {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+  commentCount: number; // comments on the issue, set by the server
 }
 
 interface Comment {

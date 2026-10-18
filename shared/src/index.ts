@@ -34,6 +34,8 @@ export interface Issue {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+  /** Comments on the issue. Set by the server. */
+  commentCount: number;
 }
 
 export interface Page<T> {

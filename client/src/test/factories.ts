@@ -16,6 +16,7 @@ export function makeIssue(overrides: Partial<Issue> = {}): Issue {
     createdAt: '2026-10-16T15:30:00.000Z',
     updatedAt: '2026-10-16T15:30:00.000Z',
     closedAt: null,
+    commentCount: 0,
     ...overrides,
   };
 }

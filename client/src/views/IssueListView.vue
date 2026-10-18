@@ -308,6 +308,9 @@ function pageLink(page: number) {
               Assignee
             </th>
             <th scope="col">
+              Comments
+            </th>
+            <th scope="col">
               Actions
             </th>
           </tr>
@@ -340,6 +343,9 @@ function pageLink(page: number) {
               </ul>
             </td>
             <td>{{ issue.assignee ?? 'Unassigned' }}</td>
+            <td data-test="comment-count">
+              {{ issue.commentCount }}
+            </td>
             <td>
               <button
                 type="button"

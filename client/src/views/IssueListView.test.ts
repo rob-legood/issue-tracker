@@ -68,6 +68,18 @@ describe('IssueListView', () => {
     expect(rows[1]!.text()).toContain('Unassigned');
   });
 
+  it('shows how many comments each issue has in a Comments column', async () => {
+    vi.mocked(listIssues).mockResolvedValue(
+      pageOf([makeIssue({ number: 2, commentCount: 3 }), makeIssue({ number: 1, commentCount: 0 })]),
+    );
+
+    const { wrapper } = await mountAt('/issues');
+
+    expect(wrapper.findAll('th').map((th) => th.text())).toContain('Comments');
+    const counts = wrapper.findAll('[data-test="comment-count"]').map((td) => td.text());
+    expect(counts).toEqual(['3', '0']);
+  });
+
   it('requests page 1 by default', async () => {
     vi.mocked(listIssues).mockResolvedValue(pageOf([makeIssue()]));
 

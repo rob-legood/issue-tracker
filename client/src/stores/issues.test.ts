@@ -426,4 +426,71 @@ describe('issues store', () => {
       expect(store.comments.map((c) => c.id)).toEqual(['c1', 'c2']);
     });
   });
+
+  describe('comment counts', () => {
+    beforeEach(() => {
+      vi.mocked(createComment).mockReset();
+      vi.mocked(deleteComment).mockReset();
+    });
+
+    async function storeWithListAndIssue() {
+      vi.mocked(listIssues).mockResolvedValue(
+        pageOf([makeIssue({ id: 'abc', commentCount: 2 }), makeIssue({ id: 'other', commentCount: 5 })]),
+      );
+      vi.mocked(getIssue).mockResolvedValue(makeIssue({ id: 'abc', commentCount: 2 }));
+      vi.mocked(listComments).mockResolvedValue([makeComment({ id: 'c1' }), makeComment({ id: 'c2' })]);
+      const store = useIssuesStore();
+      await store.fetchIssues();
+      await store.fetchIssue('abc');
+      return store;
+    }
+
+    function listCount(store: ReturnType<typeof useIssuesStore>, id: string) {
+      return store.items.find((issue) => issue.id === id)?.commentCount;
+    }
+
+    it('adds one to the issue and its list row after adding a comment', async () => {
+      vi.mocked(createComment).mockResolvedValue(makeComment({ id: 'c3', issueId: 'abc' }));
+      const store = await storeWithListAndIssue();
+
+      await store.addComment('abc', { author: 'Sam', body: 'Hi' });
+
+      expect(store.current?.commentCount).toBe(3);
+      expect(listCount(store, 'abc')).toBe(3);
+      expect(listCount(store, 'other')).toBe(5);
+    });
+
+    it('takes one off the issue and its list row after deleting a comment', async () => {
+      vi.mocked(deleteComment).mockResolvedValue(undefined);
+      const store = await storeWithListAndIssue();
+
+      await store.deleteComment('abc', 'c1');
+
+      expect(store.current?.commentCount).toBe(1);
+      expect(listCount(store, 'abc')).toBe(1);
+    });
+
+    it('counts once when the list row and the open issue are the same object', async () => {
+      vi.mocked(createComment).mockResolvedValue(makeComment({ id: 'c3', issueId: 'abc' }));
+      vi.mocked(updateIssue).mockResolvedValue(makeIssue({ id: 'abc', commentCount: 2, status: 'closed' }));
+      const store = await storeWithListAndIssue();
+      // An update puts the same issue object in both places.
+      await store.updateIssue('abc', { status: 'closed' });
+
+      await store.addComment('abc', { author: 'Sam', body: 'Hi' });
+
+      expect(store.current?.commentCount).toBe(3);
+      expect(listCount(store, 'abc')).toBe(3);
+    });
+
+    it('leaves the counts alone when adding a comment fails', async () => {
+      vi.mocked(createComment).mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server.'));
+      const store = await storeWithListAndIssue();
+
+      await expect(store.addComment('abc', { author: 'Sam', body: 'Hi' })).rejects.toThrow();
+
+      expect(store.current?.commentCount).toBe(2);
+      expect(listCount(store, 'abc')).toBe(2);
+    });
+  });
 });

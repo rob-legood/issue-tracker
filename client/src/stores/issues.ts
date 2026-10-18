@@ -108,10 +108,18 @@ export const useIssuesStore = defineStore('issues', () => {
     return updateIssue(id, { status });
   }
 
+  /** Keeps the comment count on the issue page and in the list in step with an added or deleted comment. */
+  function changeCommentCount(issueId: string, change: 1 | -1) {
+    if (current.value?.id === issueId) current.value.commentCount += change;
+    const item = items.value.find((issue) => issue.id === issueId);
+    if (item && item !== current.value) item.commentCount += change;
+  }
+
   /** Adds a comment. Throws ApiError on failure so the form can show field errors. */
   async function addComment(issueId: string, input: CreateCommentRequest): Promise<Comment> {
     const comment = await issuesApi.createComment(issueId, input);
     if (current.value?.id === issueId) comments.value.push(comment);
+    changeCommentCount(issueId, 1);
     return comment;
   }
 
@@ -119,6 +127,7 @@ export const useIssuesStore = defineStore('issues', () => {
   async function deleteComment(issueId: string, commentId: string): Promise<void> {
     await issuesApi.deleteComment(issueId, commentId);
     comments.value = comments.value.filter((comment) => comment.id !== commentId);
+    changeCommentCount(issueId, -1);
   }
 
   return {

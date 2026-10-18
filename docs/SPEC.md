@@ -19,6 +19,7 @@ A tracker for one team to create, find, update and discuss issues. The MVP has n
 | `assignee` | string or null | Optional, defaults to `null`. At most 100 characters. |
 | `createdAt`, `updatedAt` | date | Set by the server. |
 | `closedAt` | date or null | Set when status becomes `closed`. Cleared when status changes away from `closed`. |
+| `commentCount` | integer | Not stored. The number of comments on the issue, worked out by the server for each response. |
 
 Assign `number` with an atomic counter (a `counters` collection updated with `findOneAndUpdate` and `$inc`), so two issues created at the same moment never share a number.
 
@@ -36,7 +37,7 @@ Comments are stored in their own collection, not embedded in the issue, because 
 ## Features, in build order
 
 1. **Create an issue.** A form with title (required) and the optional fields. On success, go to the new issue's page.
-2. **List issues.** Newest first, 20 per page, with pagination controls. Each row shows number, title, status, priority, labels and assignee, and links to the issue.
+2. **List issues.** Newest first, 20 per page, with pagination controls. Each row shows number, title, status, priority, labels, assignee and number of comments, and links to the issue.
 3. **View an issue.** Every field, plus its comments, oldest first.
 4. **Edit an issue.** Change any editable field on the issue page. Show validation errors next to the field they belong to.
 5. **Close and reopen.** One click from the issue page and from the list.
