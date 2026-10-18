@@ -111,6 +111,26 @@ export const useIssuesStore = defineStore('issues', () => {
     return updateIssue(id, { status });
   }
 
+  /** Deletes an issue and its comments. Throws ApiError on failure and leaves the store as it was. */
+  async function deleteIssue(id: string): Promise<void> {
+    try {
+      await issuesApi.deleteIssue(id);
+    } catch (err) {
+      // A 404 means it's already gone, for example deleted in another tab, which is what was asked for.
+      if (!(err instanceof ApiError && err.status === 404)) throw err;
+    }
+    const before = items.value.length;
+    items.value = items.value.filter((issue) => issue.id !== id);
+    if (items.value.length < before) total.value = Math.max(0, total.value - 1);
+    if (current.value?.id === id) {
+      // A load still in flight would bring the deleted issue back.
+      latestIssueRequest++;
+      currentLoading.value = false;
+      current.value = null;
+      comments.value = [];
+    }
+  }
+
   /** Keeps the comment count on the issue page and in the list in step with an added or deleted comment. */
   function changeCommentCount(issueId: string, change: 1 | -1) {
     if (current.value?.id === issueId) current.value.commentCount += change;
@@ -162,6 +182,7 @@ export const useIssuesStore = defineStore('issues', () => {
     fetchIssue,
     updateIssue,
     setStatus,
+    deleteIssue,
     addComment,
     deleteComment,
   };

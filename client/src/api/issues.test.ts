@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createComment, createIssue, deleteComment, getIssue, listComments, listIssues, updateIssue } from './issues';
-import { request } from './http';
+import { createComment, createIssue, deleteComment, deleteIssue, getIssue, listComments, listIssues, updateIssue } from './issues';
+import { ApiError, request } from './http';
 
 vi.mock('./http');
 
@@ -111,6 +111,31 @@ describe('issues API', () => {
     await deleteComment('abc123', 'c1');
 
     expect(request).toHaveBeenCalledWith('/issues/abc123/comments/c1', { method: 'DELETE' });
+  });
+
+  it('deletes an issue with a DELETE', async () => {
+    await deleteIssue('abc123');
+
+    expect(request).toHaveBeenCalledWith('/issues/abc123', { method: 'DELETE' });
+  });
+
+  it('resolves with undefined when an issue is deleted (204)', async () => {
+    vi.mocked(request).mockResolvedValue(undefined);
+
+    await expect(deleteIssue('abc123')).resolves.toBeUndefined();
+  });
+
+  it('encodes the id when deleting an issue', async () => {
+    await deleteIssue('a/b c');
+
+    expect(vi.mocked(request).mock.calls[0]?.[0]).toBe('/issues/a%2Fb%20c');
+  });
+
+  it('rejects with the ApiError when deleting an issue fails', async () => {
+    const error = new ApiError(404, 'NOT_FOUND', 'Issue not found');
+    vi.mocked(request).mockRejectedValue(error);
+
+    await expect(deleteIssue('abc123')).rejects.toBe(error);
   });
 
   it('encodes both ids when deleting a comment', async () => {

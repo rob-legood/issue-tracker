@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import type { Issue, Page } from '@issue-tracker/shared';
 import { useIssuesStore } from './issues';
-import { createComment, createIssue, deleteComment, getIssue, listComments, listIssues, updateIssue } from '@/api/issues';
+import { createComment, createIssue, deleteComment, deleteIssue, getIssue, listComments, listIssues, updateIssue } from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { makeComment, makeIssue } from '@/test/factories';
 
@@ -469,6 +469,105 @@ describe('issues store', () => {
 
       await expect(store.deleteComment('abc', 'c1')).rejects.toThrow('Something went wrong');
       expect(store.comments.map((c) => c.id)).toEqual(['c1', 'c2']);
+    });
+  });
+
+  describe('deleteIssue', () => {
+    beforeEach(() => {
+      vi.mocked(deleteIssue).mockReset();
+    });
+
+    async function storeWithListAndIssue() {
+      vi.mocked(listIssues).mockResolvedValue(
+        pageOf([makeIssue({ id: 'abc' }), makeIssue({ id: 'other' })], { total: 12 }),
+      );
+      vi.mocked(getIssue).mockResolvedValue(makeIssue({ id: 'abc' }));
+      vi.mocked(listComments).mockResolvedValue([makeComment({ id: 'c1' })]);
+      const store = useIssuesStore();
+      await store.fetchIssues();
+      await store.fetchIssue('abc');
+      return store;
+    }
+
+    it('calls the API with the id', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const store = await storeWithListAndIssue();
+
+      await store.deleteIssue('abc');
+
+      expect(deleteIssue).toHaveBeenCalledWith('abc');
+    });
+
+    it('removes the issue from the loaded list', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const store = await storeWithListAndIssue();
+
+      await store.deleteIssue('abc');
+
+      expect(store.items.map((issue) => issue.id)).toEqual(['other']);
+    });
+
+    it('takes one off the list total', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const store = await storeWithListAndIssue();
+
+      await store.deleteIssue('abc');
+
+      expect(store.total).toBe(11);
+    });
+
+    it('clears the current issue when it was the deleted one', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const store = await storeWithListAndIssue();
+
+      await store.deleteIssue('abc');
+
+      expect(store.current).toBeNull();
+      expect(store.comments).toEqual([]);
+    });
+
+    it('keeps the current issue when a different issue was deleted', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const store = await storeWithListAndIssue();
+
+      await store.deleteIssue('other');
+
+      expect(store.current?.id).toBe('abc');
+      expect(store.items.map((issue) => issue.id)).toEqual(['abc']);
+    });
+
+    it('does not change the total for an issue that is not in the list', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const store = await storeWithListAndIssue();
+
+      await store.deleteIssue('not-listed');
+
+      expect(store.total).toBe(12);
+      expect(store.items).toHaveLength(2);
+    });
+
+    it('treats a 404 as already deleted: cleans up and resolves', async () => {
+      vi.mocked(deleteIssue).mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Issue not found'));
+      const store = await storeWithListAndIssue();
+
+      await expect(store.deleteIssue('abc')).resolves.toBeUndefined();
+
+      expect(store.items.map((issue) => issue.id)).toEqual(['other']);
+      expect(store.total).toBe(11);
+      expect(store.current).toBeNull();
+    });
+
+    it('rethrows other errors and leaves the state unchanged', async () => {
+      const error = new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.');
+      vi.mocked(deleteIssue).mockRejectedValue(error);
+      const store = await storeWithListAndIssue();
+
+      await expect(store.deleteIssue('abc')).rejects.toBe(error);
+
+      expect(store.items.map((issue) => issue.id)).toEqual(['abc', 'other']);
+      expect(store.total).toBe(12);
+      expect(store.current?.id).toBe('abc');
+      expect(store.comments).toHaveLength(1);
     });
   });
 

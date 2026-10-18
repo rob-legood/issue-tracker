@@ -5,7 +5,7 @@ import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import IssueDetailView from './IssueDetailView.vue';
 import { routes } from '@/router';
-import { createComment, deleteComment, getIssue, listComments, updateIssue } from '@/api/issues';
+import { createComment, deleteComment, deleteIssue, getIssue, listComments, updateIssue } from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { makeComment, makeIssue } from '@/test/factories';
 import { useIssuesStore } from '@/stores/issues';
@@ -480,6 +480,103 @@ describe('IssueDetailView', () => {
 
       expect(wrapper.find('[role="alert"]').text()).toContain('Could not reach the server.');
       expect(buttonByText(wrapper, 'Close issue')).toBeDefined();
+    });
+  });
+
+  describe('deleting the issue', () => {
+    let confirmSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.mocked(deleteIssue).mockReset();
+      vi.mocked(getIssue).mockResolvedValue(makeIssue({ id: 'abc', number: 12 }));
+    });
+
+    afterEach(() => {
+      confirmSpy.mockRestore();
+    });
+
+    function deleteIssueButton(wrapper: VueWrapper) {
+      return wrapper.findAll('button').find((button) => button.text() === 'Delete issue');
+    }
+
+    async function clickDelete(wrapper: VueWrapper) {
+      await deleteIssueButton(wrapper)!.trigger('click');
+      await flushPromises();
+    }
+
+    it('shows a Delete issue button', async () => {
+      const { wrapper } = await mountAt();
+
+      expect(deleteIssueButton(wrapper)).toBeDefined();
+      expect(deleteIssueButton(wrapper)!.element.tagName).toBe('BUTTON');
+    });
+
+    it('asks for confirmation naming the issue number', async () => {
+      const { wrapper } = await mountAt();
+
+      await clickDelete(wrapper);
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(confirmSpy.mock.calls[0]![0]).toContain('#12');
+    });
+
+    it('does nothing when the user cancels', async () => {
+      confirmSpy.mockReturnValue(false);
+      const { wrapper, router } = await mountAt('/issues/abc');
+
+      await clickDelete(wrapper);
+
+      expect(deleteIssue).not.toHaveBeenCalled();
+      expect(router.currentRoute.value.path).toBe('/issues/abc');
+    });
+
+    it('deletes the issue by id when confirmed', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const { wrapper } = await mountAt('/issues/abc');
+
+      await clickDelete(wrapper);
+
+      expect(deleteIssue).toHaveBeenCalledWith('abc');
+    });
+
+    it('goes to the issue list after deleting', async () => {
+      vi.mocked(deleteIssue).mockResolvedValue(undefined);
+      const { wrapper, router } = await mountAt('/issues/abc');
+
+      await clickDelete(wrapper);
+
+      expect(router.currentRoute.value.path).toBe('/issues');
+    });
+
+    it('disables the button while the request is pending', async () => {
+      vi.mocked(deleteIssue).mockReturnValue(new Promise(() => {}));
+      const { wrapper } = await mountAt();
+
+      await clickDelete(wrapper);
+
+      expect(deleteIssueButton(wrapper)!.attributes('disabled')).toBeDefined();
+    });
+
+    it('stays on the page and shows an alert when the server fails', async () => {
+      vi.mocked(deleteIssue).mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
+      const { wrapper, router } = await mountAt('/issues/abc');
+
+      await clickDelete(wrapper);
+
+      expect(wrapper.find('[role="alert"]').text()).toContain('Something went wrong.');
+      expect(router.currentRoute.value.path).toBe('/issues/abc');
+      expect(wrapper.find('h2').text()).toContain('#12');
+    });
+
+    it('shows an alert for a network error and re-enables the button', async () => {
+      vi.mocked(deleteIssue).mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server.'));
+      const { wrapper } = await mountAt();
+
+      await clickDelete(wrapper);
+
+      expect(wrapper.find('[role="alert"]').text()).toContain('Could not reach the server.');
+      expect(deleteIssueButton(wrapper)!.attributes('disabled')).toBeUndefined();
     });
   });
 

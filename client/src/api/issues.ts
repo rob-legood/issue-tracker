@@ -35,6 +35,10 @@ export function updateIssue(id: string, input: UpdateIssueRequest): Promise<Issu
   return request<Issue>(`/issues/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) });
 }
 
+export function deleteIssue(id: string): Promise<void> {
+  return request<void>(`/issues/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export function listComments(issueId: string): Promise<Comment[]> {
   return request<Comment[]>(`/issues/${encodeURIComponent(issueId)}/comments`);
 }

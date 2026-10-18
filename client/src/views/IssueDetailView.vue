@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue';
-import { RouterLink, useRoute } from 'vue-router';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { Comment, Issue, IssuePriority, IssueStatus, UpdateIssueRequest } from '@issue-tracker/shared';
 import { useIssuesStore } from '@/stores/issues';
 import { ApiError } from '@/api/http';
@@ -10,6 +10,7 @@ type Field = 'title' | 'description' | 'status' | 'priority' | 'labels' | 'assig
 const FIELDS: readonly Field[] = ['title', 'description', 'status', 'priority', 'labels', 'assignee'];
 
 const route = useRoute();
+const router = useRouter();
 const store = useIssuesStore();
 
 const issueId = computed(() => String(route.params.id));
@@ -36,6 +37,25 @@ async function toggleStatus(current: Issue) {
   } finally {
     statusSaving.value = false;
   }
+}
+
+// Deleting.
+
+const deleting = ref(false);
+const deleteError = ref<string | null>(null);
+
+async function deleteIssue(current: Issue) {
+  if (!window.confirm(`Delete issue #${current.number} and all its comments? This cannot be undone.`)) return;
+  deleting.value = true;
+  deleteError.value = null;
+  try {
+    await store.deleteIssue(current.id);
+  } catch (err) {
+    deleteError.value = err instanceof Error ? err.message : 'Could not delete the issue.';
+    deleting.value = false;
+    return;
+  }
+  await router.push(backToList.value);
 }
 
 // Editing.
@@ -240,6 +260,7 @@ watch(
   (id) => {
     editing.value = false;
     statusError.value = null;
+    deleteError.value = null;
     resetCommentErrors();
     commentForm.body = '';
     void store.fetchIssue(id);
@@ -310,6 +331,13 @@ watch(
             >
               {{ issue.status === 'closed' ? 'Reopen issue' : 'Close issue' }}
             </button>
+            <button
+              type="button"
+              :disabled="deleting"
+              @click="deleteIssue(issue)"
+            >
+              Delete issue
+            </button>
           </div>
         </div>
 
@@ -318,6 +346,12 @@ watch(
           role="alert"
         >
           Could not change the status: {{ statusError }}
+        </p>
+        <p
+          v-if="deleteError"
+          role="alert"
+        >
+          Could not delete the issue: {{ deleteError }}
         </p>
 
         <dl class="issue-fields">

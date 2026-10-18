@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { Issue } from '@issue-tracker/shared';
 import { createApp } from '../app.ts';
 import { IssueModel } from '../models/issue.ts';
+import { CommentModel } from '../models/comment.ts';
 
 const app = createApp();
 
@@ -1021,6 +1022,100 @@ describe('PATCH /api/issues/:id under concurrent edits', () => {
       labels: ['$priority'],
       assignee: '$title',
     });
+  });
+});
+
+describe('DELETE /api/issues/:id', () => {
+  function deleteIssue(id: string) {
+    return request(app).delete(`/api/issues/${id}`);
+  }
+
+  function addComment(issueId: string, body = 'Hello') {
+    return CommentModel.create({ issueId, author: 'Sam', body });
+  }
+
+  it('returns 204 with an empty body', async () => {
+    const [issue] = await createIssues(1);
+
+    const res = await deleteIssue(issue!.id);
+
+    expect(res.status).toBe(204);
+    expect(res.text).toBe('');
+    expect(res.body).toEqual({});
+  });
+
+  it('makes GET /api/issues/:id return 404 afterwards', async () => {
+    const [issue] = await createIssues(1);
+    await deleteIssue(issue!.id);
+
+    expectNotFound(await request(app).get(`/api/issues/${issue!.id}`));
+  });
+
+  it('removes the issue from the list and the total', async () => {
+    const [first, second] = await createIssues(2);
+    await deleteIssue(first!.id);
+
+    const res = await request(app).get('/api/issues');
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.items.map((issue: Issue) => issue.id)).toEqual([second!.id]);
+  });
+
+  it('deletes all comments of the issue', async () => {
+    const [issue] = await createIssues(1);
+    await addComment(issue!.id, 'one');
+    await addComment(issue!.id, 'two');
+
+    await deleteIssue(issue!.id);
+
+    expect(await CommentModel.countDocuments({ issueId: issue!.id })).toBe(0);
+  });
+
+  it('leaves the comments of other issues untouched', async () => {
+    const [issue, other] = await createIssues(2);
+    await addComment(issue!.id);
+    await addComment(other!.id, 'keep me');
+
+    await deleteIssue(issue!.id);
+
+    const remaining = await CommentModel.find({ issueId: other!.id });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.body).toBe('keep me');
+    expect(await CommentModel.countDocuments()).toBe(1);
+  });
+
+  it('leaves other issues untouched', async () => {
+    const [issue, other] = await createIssues(2);
+    await deleteIssue(issue!.id);
+
+    const res = await request(app).get(`/api/issues/${other!.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(other);
+  });
+
+  it('returns 404 NOT_FOUND for an id that does not exist', async () => {
+    expectNotFound(await deleteIssue(MISSING_ID));
+  });
+
+  it('returns 404 for a malformed id', async () => {
+    expectNotFound(await deleteIssue('not-an-object-id'));
+  });
+
+  it('returns 404 when the same issue is deleted twice', async () => {
+    const [issue] = await createIssues(1);
+    expect((await deleteIssue(issue!.id)).status).toBe(204);
+
+    expectNotFound(await deleteIssue(issue!.id));
+  });
+
+  it('does not reuse the number of the deleted newest issue', async () => {
+    const [, second] = await createIssues(2);
+    await deleteIssue(second!.id);
+
+    const res = await createIssue({ title: 'Next' });
+
+    expect(res.body.number).toBe(3);
   });
 });
 

@@ -120,3 +120,13 @@ issuesRouter.patch('/issues/:id', async (req, res) => {
   const body: Issue = toIssue(doc, await CommentModel.countDocuments({ issueId: doc._id }));
   res.json(body);
 });
+
+issuesRouter.delete('/issues/:id', async (req, res) => {
+  const { id } = req.params;
+  // The issue goes first: if deleting its comments then fails, they are orphaned, but no
+  // issue is ever left showing with some of its comments missing.
+  const doc = mongoose.isValidObjectId(id) ? await IssueModel.findOneAndDelete({ _id: id }).lean() : null;
+  if (!doc) throw new HttpError(404, 'NOT_FOUND', 'Issue not found');
+  await CommentModel.deleteMany({ issueId: doc._id });
+  res.status(204).end();
+});
