@@ -28,6 +28,9 @@ export const useIssuesStore = defineStore('issues', () => {
   const currentError = ref<string | null>(null);
   const currentNotFound = ref(false);
 
+  /** The list's URL query (filters and page), so "Back to issues" returns to the same view. */
+  const listRouteQuery = ref<Record<string, string>>({});
+
   const totalPages = computed(() => Math.max(1, Math.ceil(total.value / limit.value)));
 
   // Only the latest request may update the list, so a slow response for an
@@ -125,13 +128,24 @@ export const useIssuesStore = defineStore('issues', () => {
 
   /** Deletes a comment. Throws ApiError on failure and leaves the list as it was. */
   async function deleteComment(issueId: string, commentId: string): Promise<void> {
-    await issuesApi.deleteComment(issueId, commentId);
+    try {
+      await issuesApi.deleteComment(issueId, commentId);
+    } catch (err) {
+      // A 404 means it's already gone, for example deleted in another tab, which is what was asked for.
+      if (!(err instanceof ApiError && err.status === 404)) throw err;
+    }
+    if (current.value?.id !== issueId) {
+      changeCommentCount(issueId, -1);
+      return;
+    }
+    const before = comments.value.length;
     comments.value = comments.value.filter((comment) => comment.id !== commentId);
-    changeCommentCount(issueId, -1);
+    if (comments.value.length < before) changeCommentCount(issueId, -1);
   }
 
   return {
     items,
+    listRouteQuery,
     total,
     page,
     limit,

@@ -112,7 +112,7 @@ issuesRouter.patch('/issues/:id', async (req, res) => {
     ? await IssueModel.findOneAndUpdate(
         { _id: id },
         [{ $set: { ...values, closedAt: closedAtFor(input.status), updatedAt: '$$NOW' } }],
-        { new: true, updatePipeline: true, timestamps: false },
+        { returnDocument: 'after', updatePipeline: true, timestamps: false },
       ).lean()
     : null;
   if (!doc) throw new HttpError(404, 'NOT_FOUND', 'Issue not found');

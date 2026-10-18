@@ -8,6 +8,7 @@ import { routes } from '@/router';
 import { listIssues, updateIssue } from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { makeIssue } from '@/test/factories';
+import { useIssuesStore } from '@/stores/issues';
 
 vi.mock('@/api/issues');
 
@@ -66,6 +67,14 @@ describe('IssueListView', () => {
     expect(first.find('a').text()).toBe('Login fails');
     expect(first.find('a').attributes('href')).toBe('/issues/abc');
     expect(rows[1]!.text()).toContain('Unassigned');
+  });
+
+  it('remembers its filters and page, so the issue page can link back to the same view', async () => {
+    vi.mocked(listIssues).mockResolvedValue(pageOf([makeIssue()], { total: 45, page: 2 }));
+
+    await mountAt('/issues?status=open&q=login&sort=oldest&page=2&bogus=1');
+
+    expect(useIssuesStore().listRouteQuery).toEqual({ status: 'open', q: 'login', sort: 'oldest', page: '2' });
   });
 
   it('shows how many comments each issue has in a Comments column', async () => {

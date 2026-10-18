@@ -427,6 +427,51 @@ describe('issues store', () => {
     });
   });
 
+  describe('deleteComment when the comment is already gone', () => {
+    beforeEach(() => {
+      vi.mocked(deleteComment).mockReset();
+    });
+
+    async function storeWithComments() {
+      vi.mocked(listIssues).mockResolvedValue(pageOf([makeIssue({ id: 'abc', commentCount: 2 })]));
+      vi.mocked(getIssue).mockResolvedValue(makeIssue({ id: 'abc', commentCount: 2 }));
+      vi.mocked(listComments).mockResolvedValue([makeComment({ id: 'c1' }), makeComment({ id: 'c2' })]);
+      const store = useIssuesStore();
+      await store.fetchIssues();
+      await store.fetchIssue('abc');
+      return store;
+    }
+
+    it('treats a 404 as deleted: removes the comment and resolves', async () => {
+      vi.mocked(deleteComment).mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Comment not found'));
+      const store = await storeWithComments();
+
+      await expect(store.deleteComment('abc', 'c1')).resolves.toBeUndefined();
+
+      expect(store.comments.map((c) => c.id)).toEqual(['c2']);
+      expect(store.current?.commentCount).toBe(1);
+      expect(store.items[0]?.commentCount).toBe(1);
+    });
+
+    it('does not change the count for a comment that is not in the list', async () => {
+      vi.mocked(deleteComment).mockResolvedValue(undefined);
+      const store = await storeWithComments();
+
+      await store.deleteComment('abc', 'not-here');
+
+      expect(store.comments.map((c) => c.id)).toEqual(['c1', 'c2']);
+      expect(store.current?.commentCount).toBe(2);
+    });
+
+    it('still rethrows errors other than 404', async () => {
+      vi.mocked(deleteComment).mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong'));
+      const store = await storeWithComments();
+
+      await expect(store.deleteComment('abc', 'c1')).rejects.toThrow('Something went wrong');
+      expect(store.comments.map((c) => c.id)).toEqual(['c1', 'c2']);
+    });
+  });
+
   describe('comment counts', () => {
     beforeEach(() => {
       vi.mocked(createComment).mockReset();

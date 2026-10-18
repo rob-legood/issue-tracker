@@ -8,6 +8,7 @@ import { routes } from '@/router';
 import { createComment, deleteComment, getIssue, listComments, updateIssue } from '@/api/issues';
 import { ApiError } from '@/api/http';
 import { makeComment, makeIssue } from '@/test/factories';
+import { useIssuesStore } from '@/stores/issues';
 
 vi.mock('@/api/issues');
 
@@ -153,6 +154,24 @@ describe('IssueDetailView', () => {
 
       expect(wrapper.text()).toContain('No comments yet.');
       expect(wrapper.find('[data-test="comment"]').exists()).toBe(false);
+    });
+
+    it('links back to the list with the filters and page it was left on', async () => {
+      const { wrapper } = await mountAt('/issues/abc');
+
+      useIssuesStore().listRouteQuery = { status: 'open', page: '2' };
+      await flushPromises();
+
+      const back = wrapper.findAll('a').find((a) => a.text() === 'Back to issues');
+      const params = Object.fromEntries(new URLSearchParams(back!.attributes('href')!.split('?')[1] ?? ''));
+      expect(params).toEqual({ status: 'open', page: '2' });
+    });
+
+    it('links back to the plain list when it was not opened from the list', async () => {
+      const { wrapper } = await mountAt('/issues/abc');
+
+      const back = wrapper.findAll('a').find((a) => a.text() === 'Back to issues');
+      expect(back!.attributes('href')).toBe('/issues');
     });
 
     it('shows a not found message with a link back to the list on a 404', async () => {

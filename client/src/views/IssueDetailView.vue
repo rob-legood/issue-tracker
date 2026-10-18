@@ -14,6 +14,8 @@ const store = useIssuesStore();
 
 const issueId = computed(() => String(route.params.id));
 const issue = computed(() => (store.current?.id === issueId.value ? store.current : null));
+/** Back to the list as it was left: same filters, same page. */
+const backToList = computed(() => ({ name: 'issues', query: store.listRouteQuery }));
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString();
@@ -253,7 +255,7 @@ watch(
       role="status"
     >
       Issue not found. It may have been deleted.
-      <RouterLink :to="{ name: 'issues' }">
+      <RouterLink :to="backToList">
         Back to issues
       </RouterLink>
     </p>
@@ -269,7 +271,7 @@ watch(
       >
         Try again
       </button>
-      <RouterLink :to="{ name: 'issues' }">
+      <RouterLink :to="backToList">
         Back to issues
       </RouterLink>
     </p>
@@ -283,7 +285,7 @@ watch(
 
     <template v-else>
       <p>
-        <RouterLink :to="{ name: 'issues' }">
+        <RouterLink :to="backToList">
           Back to issues
         </RouterLink>
       </p>

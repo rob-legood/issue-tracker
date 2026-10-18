@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
-import type { LocationQuery, LocationQueryRaw } from 'vue-router';
+import type { LocationQuery } from 'vue-router';
 import type { Issue, IssuePriority, IssueSort, IssueStatus, ListIssuesQuery } from '@issue-tracker/shared';
 import { useIssuesStore } from '@/stores/issues';
 import { PRIORITY_LABELS, SORT_LABELS, STATUS_LABELS } from '@/constants/issues';
@@ -41,8 +41,8 @@ function filtersFromQuery(query: LocationQuery): Filters {
 }
 
 /** The URL query for some filters, leaving out empty values and the default sort. */
-function filtersToQuery(filters: Filters): LocationQueryRaw {
-  const query: LocationQueryRaw = {};
+function filtersToQuery(filters: Filters): Record<string, string> {
+  const query: Record<string, string> = {};
   if (filters.status.length) query.status = filters.status.join(',');
   if (filters.priority.length) query.priority = filters.priority.join(',');
   for (const key of ['label', 'assignee', 'q'] as const) {
@@ -115,6 +115,7 @@ watch(
   () => JSON.stringify(listQuery.value),
   () => {
     statusError.value = null;
+    store.listRouteQuery = pageLink(currentPage.value).query;
     loadIssues();
   },
   { immediate: true },

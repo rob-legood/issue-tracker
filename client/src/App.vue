@@ -28,6 +28,19 @@ body {
   outline-offset: 2px;
 }
 
+.button {
+  background: #1d4ed8;
+  border-radius: 0.25rem;
+  color: #fff;
+  padding: 0.4rem 0.9rem;
+  text-decoration: none;
+}
+
+.button:hover,
+.button:focus-visible {
+  background: #1e40af;
+}
+
 .toolbar {
   align-items: center;
   display: flex;
